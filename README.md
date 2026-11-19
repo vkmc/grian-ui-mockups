@@ -8,7 +8,9 @@ Horizon (Bootstrap 3, Font Awesome 4, Chart.js 4.4.1) and can be opened directly
 
 ## Viewing
 
-Open any `.html` file in a browser. The pages load Bootstrap, Font Awesome and Chart.js from a CDN,
+**Online:** https://vkmc.github.io/grian-ui-mockups/ (GitHub Pages, updated on every push to `main`).
+
+**Locally:** open any `.html` file in a browser. The pages load Bootstrap, Font Awesome and Chart.js from a CDN,
 so an internet connection is needed. The sidebar links the pages of each side to each other.
 
 The yellow banner at the top of each page switches between data sets:

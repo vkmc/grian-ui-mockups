@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Project → Telemetry → Storage – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="project-common.css">
+</head>
+<body>
+<div class="hz-topbar" id="topbar"></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs" id="sidebar"></div>
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong> | Data:
+      <button class="btn btn-xs btn-default active" data-scn="demo">demo project (real, 2026-11-18)</button>
+      <button class="btn btn-xs btn-default" data-scn="sample">Sample: larger project</button>
+      <span class="mock-note">The real demo project has no volumes, snapshots or private images, so it shows the empty states. The sample is invented.</span>
+    </div>
+
+    <div class="page-header"><h1>Storage <small id="proj"></small></h1></div>
+
+    <div class="row toolbar">
+      <div class="col-sm-7">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Time range" id="range">
+          <button class="btn btn-default" data-range="7d">7d</button>
+          <button class="btn btn-default active" data-range="30d">30d</button>
+          <button class="btn btn-default" data-range="90d">90d</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px">Range for the footprint chart. Storage changes slowly, so ranges are in days.</span>
+      </div>
+      <div class="col-sm-5 text-right refresh-info"><i class="fa fa-refresh"></i> Auto-refresh every 5 min | last updated <span>just now</span></div>
+    </div>
+
+    <div class="row" id="cards"></div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-pie-chart"></i> Storage quota
+        <span class="src">Block Storage API</span><span class="bounded">4 rows</span></h3></div>
+      <div class="panel-body">
+        <div id="quota"></div>
+        <div class="q-legend">
+          <span><span class="sw" style="background:#337ab7"></span>Attached volumes</span>
+          <span><span class="sw" style="background:#999"></span>Unattached volumes</span>
+          <span><span class="sw" style="background:#b0417a"></span>Snapshots</span>
+        </div>
+        <p class="help-block-sm" style="margin:10px 0 0">Snapshots count against the same gigabytes quota as volumes. The forecast extends the trend of the last 30 days.</p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-7"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-area-chart"></i> Storage footprint over time</h3></div>
+        <div class="panel-body" id="fp-body">
+          <div id="fp-legend"></div>
+          <div class="chart-box"><canvas id="fp"></canvas></div>
+          <p class="help-block-sm" style="margin:8px 0 0">Stacked: the top of the area is the total counted by the gigabytes quota. Private images are shown separately below; they don't use the volume quota.</p>
+        </div></div></div>
+      <div class="col-md-5"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-trash-o"></i> Clean-up candidates <span class="bounded">max 10 rows</span></h3></div>
+        <div id="cleanup"></div>
+      </div></div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-7"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-hdd-o"></i> Volumes and snapshots <span class="bounded">max 25 rows</span></h3></div>
+        <div id="vols"></div>
+      </div></div>
+      <div class="col-md-5"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-clone"></i> Private images <span class="src">Image API</span></h3></div>
+        <div id="imgs"></div>
+      </div></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('how').classList.toggle('hidden')">
+        <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+      <div class="panel-body hidden" id="how">
+        <table class="thr-table help-block-sm" style="color:#333">
+          <tr><th>Item</th><th>Source / query</th><th>Rule</th></tr>
+          <tr><td>Quota rows</td><td>Block Storage API (limits, volume and snapshot lists)</td><td>Warning ≥ 75%, critical ≥ 90%</td></tr>
+          <tr><td>Footprint</td><td><code>sum(ceilometer_volume_size)</code>, <code>sum(ceilometer_volume_snapshot_size)</code>, <code>sum(ceilometer_image_size)</code></td><td>Daily points (<code>[90d:1d]</code>)</td></tr>
+          <tr><td>Unattached volume</td><td>Volume status <code>available</code>, time since last update</td><td>Candidate after 7 days</td></tr>
+          <tr><td>Old snapshot</td><td>Snapshot <code>created_at</code></td><td>Candidate after 30 days, unless it is the newest snapshot of its volume</td></tr>
+          <tr><td>Unused image</td><td>Private image not used by any instance in the project</td><td>Candidate after 30 days</td></tr>
+        </table>
+        <p class="help-block-sm" style="margin-top:8px">Cinder doesn't record when a volume was detached. "Unattached for" uses the volume's last update time, so it can be shorter than the real idle time.</p>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="project-demo-data.js"></script>
+<script src="project-common.js"></script>
+<script>
+chrome('storage');
+let D, range = '30d';
+function model(k) {
+  if (k === 'demo') { const q = DEMO.quota;
+    return { name: DEMO.project.name, real: true, volumes: DEMO.volumes, snapshots: DEMO.snapshots, images: DEMO.private_images,
+      limits: { volume_gb: q.volume_gb[1], volumes: q.volumes[1], snapshots: q.snapshots[1], backups: q.backups[1] }, backups: 0 }; }
+  return { name: SAMPLE.project.name, real: false, volumes: SAMPLE.volumes, snapshots: SAMPLE.snapshots, images: SAMPLE.images,
+    limits: { volume_gb: SAMPLE.quotaLimits.volume_gb, volumes: SAMPLE.quotaLimits.volumes, snapshots: SAMPLE.quotaLimits.snapshots, backups: SAMPLE.quotaLimits.backups }, backups: 0 };
+}
+function candidates(m) {
+  const out = [];
+  m.volumes.filter(v => v.status === 'available' && v.idle >= 7).forEach(v => out.push({ kind: 'Volume', icon: 'hdd-o', name: v.name, gb: v.gb, why: `unattached for ${v.idle} days`, sev: v.idle >= 30 ? 2 : 1, quota: true }));
+  const newest = {}; m.snapshots.forEach(s => { if (!newest[s.volume] || s.age < newest[s.volume]) newest[s.volume] = s.age; });
+  m.snapshots.filter(s => s.age >= 30 && s.age !== newest[s.volume]).forEach(s => out.push({ kind: 'Snapshot', icon: 'camera', name: s.name, gb: s.gb, why: `${s.age} days old; a newer snapshot of ${s.volume} exists`, sev: 1, quota: true }));
+  m.snapshots.filter(s => s.age >= 30 && s.age === newest[s.volume]).forEach(s => out.push({ kind: 'Snapshot', icon: 'camera', name: s.name, gb: s.gb, why: `${s.age} days old; the only snapshot of ${s.volume}`, sev: 0, quota: true }));
+  m.images.filter(i => i.users === 0 && i.age >= 30).forEach(i => out.push({ kind: 'Image', icon: 'clone', name: i.name, gb: i.gb, why: `not used by any instance, ${i.age} days old`, sev: 1, quota: false }));
+  return out.sort((a, b) => b.sev - a.sev || b.gb - a.gb);
+}
+function render() {
+  resetCharts();
+  const m = D;
+  document.getElementById('proj').textContent = `project ${m.name}`;
+  const att = m.volumes.filter(v => v.status === 'in-use').reduce((a, v) => a + v.gb, 0), un = m.volumes.filter(v => v.status !== 'in-use').reduce((a, v) => a + v.gb, 0);
+  const snap = m.snapshots.reduce((a, s) => a + s.gb, 0), used = att + un + snap, p = pct(used, m.limits.volume_gb);
+  const cand = candidates(m), reclaim = cand.filter(c => c.quota && c.sev > 0).reduce((a, c) => a + c.gb, 0);
+  const gb = v => `${v} GB`;
+  document.getElementById('cards').innerHTML =
+    card(levelCls(p), 'pie-chart', `${p}%`, 'Volume gigabytes quota', `${used} of ${m.limits.volume_gb} GB | volumes + snapshots`) +
+    card(levelCls(pct(m.volumes.length, m.limits.volumes)), 'hdd-o', `${m.volumes.length}<small> / ${m.limits.volumes}</small>`, 'Volumes', m.volumes.length ? `${m.volumes.filter(v => v.status !== 'in-use').length} unattached` : 'none yet') +
+    card(levelCls(pct(m.snapshots.length, m.limits.snapshots)), 'camera', `${m.snapshots.length}<small> / ${m.limits.snapshots}</small>`, 'Volume snapshots', m.snapshots.length ? `${snap} GB` : 'none yet') +
+    card(reclaim ? 'panel-yellow' : 'panel-green', 'trash-o', `${reclaim} GB`, 'Could be freed', reclaim ? `${cand.filter(c => c.quota && c.sev > 0).length} clean-up candidates` : 'nothing to clean up');
+
+  document.getElementById('quota').innerHTML =
+    quotaRow('Gigabytes', [{ v: att, color: C.blue, label: 'Attached volumes' }, { v: un, color: C.grey, label: 'Unattached volumes' }, { v: snap, color: C.mag, label: 'Snapshots' }], m.limits.volume_gb, gb, m.real ? fcText(null) : fcText(46)) +
+    quotaRow('Volumes', [{ v: m.volumes.filter(v => v.status === 'in-use').length, color: C.blue, label: 'Attached' }, { v: m.volumes.filter(v => v.status !== 'in-use').length, color: C.grey, label: 'Unattached' }], m.limits.volumes, v => v, m.real ? fcText(null) : fcText(null)) +
+    quotaRow('Snapshots', [{ v: m.snapshots.length, color: C.mag, label: 'Snapshots' }], m.limits.snapshots, v => v, fcText(null)) +
+    quotaRow('Backups', [], m.limits.backups, v => v, '<span class="text-muted" title="Cinder backup (c-bak) is not enabled in this cloud">Backup service not enabled</span>');
+
+  // Footprint
+  const body = document.getElementById('fp-body');
+  if (!used && !m.images.length) {
+    document.getElementById('fp-legend').innerHTML = '';
+    body.querySelector('.chart-box').outerHTML = '<div class="chart-box empty-state" style="height:auto"><i class="fa fa-hdd-o"></i>No volumes, snapshots or private images in this project yet.<br><small>The chart starts once Ceilometer reports <code>volume_size</code> for one of your volumes.</small></div>';
+  } else {
+    if (!document.getElementById('fp')) body.querySelector('.chart-box').outerHTML = '<div class="chart-box"><canvas id="fp"></canvas></div>';
+    const n = { '7d': 7, '30d': 30, '90d': 90 }[range];
+    const labels = Array.from({ length: n }, (_, i) => dayLabel(Date.now() / 1000 - (n - 1 - i) * 86400));
+    const grow = (now, from) => Array.from({ length: n }, (_, i) => Math.round(from + (now - from) * Math.min(1, (i + (90 - n)) / 89)));
+    const volS = grow(att + un, 380), snapS = grow(snap, 120); snapS.forEach((v, i) => { if (i > n - 2) snapS[i] = snap; });
+    document.getElementById('fp-legend').innerHTML = legend([['Volumes', C.blue], ['Snapshots', C.mag], ['Quota limit', C.grey, true]]);
+    lineChart(document.getElementById('fp'), labels, [
+      { label: 'Volumes', data: volS, borderColor: C.blue, backgroundColor: 'rgba(51,122,183,.25)', fill: 'origin', stack: 's' },
+      { label: 'Snapshots', data: snapS, borderColor: C.mag, backgroundColor: 'rgba(176,65,122,.25)', fill: '-1', stack: 's' },
+      { ...refLine('Quota limit', m.limits.volume_gb, n), stack: 'ref' }], { stacked: true, tickFmt: v => `${v} GB`, max: m.limits.volume_gb * 1.1 });
+  }
+
+  // Clean-up
+  document.getElementById('cleanup').innerHTML = cand.length ? `<table class="table tbl" style="margin-bottom:0"><tbody>` + cand.slice(0, 10).map(c =>
+    `<tr><td><i class="fa fa-${c.icon} text-muted"></i> <strong>${c.name}</strong><br><small class="text-muted">${c.kind} | ${c.why}</small></td>
+     <td class="text-right" style="white-space:nowrap">${c.gb} GB${c.quota ? '' : '<br><small class="text-muted">not in quota</small>'}</td>
+     <td class="text-right">${c.sev ? `<span class="tag ${c.sev === 2 ? 'tag-warn' : 'tag-info'}">${c.sev === 2 ? 'review' : 'consider'}</span>` : '<span class="tag tag-ok" title="Only copy of this volume\'s data">keep?</span>'}</td></tr>`).join('') +
+    `</tbody></table><div class="panel-footer help-block-sm"><i class="fa fa-info-circle"></i> Suggestions only. Check that nothing still needs the data before deleting it.</div>`
+    : '<div class="panel-body empty-state"><i class="fa fa-check-circle text-success"></i>Nothing to clean up.</div>';
+
+  // Volumes table
+  const rows = [...m.volumes.map(v => ({ ...v, kind: 'vol' })), ...m.snapshots.map(s => ({ ...s, kind: 'snap' }))];
+  document.getElementById('vols').innerHTML = rows.length ? `<table class="table tbl" style="margin-bottom:0"><thead><tr><th>Name</th><th>Type</th><th class="text-right">Size</th><th>Status / attached to</th><th class="text-right">Age</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td><a class="tbl-link"><strong>${r.name}</strong></a></td><td>${r.kind === 'vol' ? 'Volume' : `Snapshot of ${r.volume}`}</td><td class="text-right">${r.gb} GB</td>
+      <td>${r.kind === 'vol' ? (r.status === 'in-use' ? `<span class="sw" style="background:${C.blue}"></span>in-use | ${r.attached}` : `<span class="sw" style="background:${C.grey}"></span>available <small class="text-muted">(unattached ${r.idle} d)</small>`) : '<span class="sw" style="background:#b0417a"></span>available'}</td>
+      <td class="text-right">${r.age} d</td></tr>`).join('') + '</tbody></table>'
+    : '<div class="panel-body empty-state"><i class="fa fa-hdd-o"></i>No volumes or snapshots. <a>Create a volume…</a></div>';
+
+  document.getElementById('imgs').innerHTML = m.images.length ? `<table class="table tbl" style="margin-bottom:0"><thead><tr><th>Image</th><th class="text-right">Size</th><th class="text-right">Used by</th></tr></thead><tbody>` +
+    m.images.map(i => `<tr><td><strong>${i.name}</strong><br><small class="text-muted">${i.age} days old</small></td><td class="text-right">${i.gb} GB</td>
+      <td class="text-right">${i.users ? `${i.users} instance${i.users > 1 ? 's' : ''}` : '<span class="text-warning">none</span>'}</td></tr>`).join('') +
+    `</tbody></table><div class="panel-footer help-block-sm">Total ${m.images.reduce((a, i) => a + i.gb, 0).toFixed(1)} GB in the image store.</div>`
+    : '<div class="panel-body empty-state"><i class="fa fa-clone"></i>No private images. Public images shared by the cloud are not counted here.</div>';
+}
+scenarios(k => { D = model(k); render(); });
+document.getElementById('range').onclick = e => { const b = e.target.closest('button'); if (!b) return; range = b.dataset.range;
+  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('active', x === b)); render(); };
+</script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Project → Telemetry → Usage – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="project-common.css">
+</head>
+<body>
+<div class="hz-topbar" id="topbar"></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs" id="sidebar"></div>
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong> | Data:
+      <button class="btn btn-xs btn-default active" data-scn="demo">demo project (real, 2026-11-18)</button>
+      <button class="btn btn-xs btn-default" data-scn="sample">Sample: larger project</button>
+      <span class="mock-note">The demo numbers are computed in the page from the real 12 h series (the instances started at about 11:00). The sample is invented. "Export CSV" works.</span>
+    </div>
+
+    <div class="page-header"><h1>Usage <small id="proj"></small></h1></div>
+
+    <div class="row toolbar">
+      <div class="col-sm-8">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Period" id="period">
+          <button class="btn btn-default active" data-p="this">November 2026 (to date)</button>
+          <button class="btn btn-default" disabled title="Not available: older than the 15 days of metrics this cloud keeps"><i class="fa fa-lock"></i> October 2026</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px" id="coverage"></span>
+      </div>
+      <div class="col-sm-4 text-right"><button class="btn btn-sm btn-default" id="csv"><i class="fa fa-download"></i> Export CSV</button></div>
+    </div>
+
+    <div class="alert alert-info" style="padding:8px 12px"><i class="fa fa-info-circle"></i> <strong>This is a usage report, not a bill.</strong>
+      It shows what your instances held (flavor size × time) and what they actually used. Prices, if your cloud charges for use, come from its billing system.</div>
+
+    <div id="retention"></div>
+
+    <div class="row" id="cards"></div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title" style="display:inline-block"><i class="fa fa-bar-chart"></i> Daily usage</h3>
+        <div class="btn-group btn-group-xs pull-right" id="metric">
+          <button class="btn btn-default active" data-m="cpu">CPU</button><button class="btn btn-default" data-m="mem">Memory</button><button class="btn btn-default" data-m="net">Network</button>
+        </div></div>
+      <div class="panel-body"><div id="d-legend"></div><div class="chart-box"><canvas id="daily"></canvas></div>
+        <p class="help-block-sm" id="d-note" style="margin:8px 0 0"></p></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-table"></i> By instance <span class="bounded" id="tbl-range"></span></h3></div>
+      <div class="table-responsive"><table class="table table-hover tbl" style="margin-bottom:0" id="tbl">
+        <thead><tr><th>Instance</th><th>Flavor</th><th class="text-right">Hours running</th><th class="text-right">vCPU-hours held</th><th class="text-right">CPU-hours used</th><th>Use of held CPU</th>
+          <th class="text-right">RAM GB-hours held</th><th class="text-right">RAM GB-hours used</th><th class="text-right">Network in / out</th></tr></thead>
+        <tbody id="rows"></tbody><tfoot id="foot"></tfoot></table></div>
+      <div class="panel-footer help-block-sm" id="tbl-foot"></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('how').classList.toggle('hidden')">
+        <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+      <div class="panel-body hidden" id="how">
+        <table class="thr-table help-block-sm" style="color:#333">
+          <tr><th>Column</th><th>Query (per instance, over the period)</th></tr>
+          <tr><td>Hours running</td><td><code>count_over_time(ceilometer_vcpus[…])</code> × polling interval ÷ 3600</td></tr>
+          <tr><td>vCPU-hours held</td><td><code>sum_over_time(ceilometer_vcpus[…:1h])</code></td></tr>
+          <tr><td>CPU-hours used</td><td><code>increase(ceilometer_cpu[…]) / 1e9 / 3600</code></td></tr>
+          <tr><td>RAM GB-hours held / used</td><td><code>sum_over_time(ceilometer_memory[…:1h])</code> / <code>sum_over_time(ceilometer_memory_usage[…:1h])</code>, ÷ 1024</td></tr>
+          <tr><td>Network</td><td><code>increase(ceilometer_network_{incoming,outgoing}_bytes[…])</code>, all interfaces</td></tr>
+          <tr><td>Volume GB-hours</td><td><code>sum_over_time(ceilometer_volume_size[…:1h])</code> (plus snapshots)</td></tr>
+          <tr><td>Period covered</td><td>From the later of: start of the month, or now − retention. Days before that are shown as not kept, never as zero.</td></tr>
+        </table>
+        <p class="help-block-sm" style="margin-top:8px"><strong>Retention.</strong> This cloud keeps metrics for 15 days (Prometheus default; DevStack doesn't change it).
+          Grian can't read the retention for project users: the Aetos status endpoint that reports it is limited to admins and services
+          (<code>telemetry:status</code>), so the value comes from an operator setting (<code>GRIAN_PLUGIN['metrics_retention_days']</code>). A monthly report is complete only
+          if retention is longer than a month, or if the operator keeps daily totals with recording rules.</p>
+        <p class="help-block-sm" style="margin-top:8px">Only polled samples are used (<code>resource_name</code> ending in <code>:instance-&lt;uuid&gt;</code>). Ceilometer also emits a notification sample per instance with a different <code>resource_name</code>; summing both would count every instance twice.
+          Instances that never ran (ERROR) have no metrics and appear only in the note below the table. Long periods depend on the Prometheus retention set by your operator.</p>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="project-demo-data.js"></script>
+<script src="project-common.js"></script>
+<script>
+chrome('usage');
+let scn, period = 'this', metric = 'cpu', ROWS = [];
+// Retention: 15 days (checked on the VM: storage.tsdb.retention.time = 15d). "Now" is the snapshot time.
+const RETENTION_DAYS = 15, NOW_DAY = 18, NOW_HOURS = 20.3;          // 2026-11-18 20:20 UTC
+const FIRST_KEPT_DAY = NOW_DAY - RETENTION_DAYS + 1;                 // 11/4: first full day still kept (11/3 is partly deleted)
+const DEPLOYED_DAY = 17;                                             // the DevStack cloud was deployed on 11/17 13:53 UTC
+const COVERED_HOURS = (NOW_DAY - FIRST_KEPT_DAY) * 24 + NOW_HOURS;   // sample project: 11/4 00:00 → 11/18 20:20
+
+function demoRows() {
+  const g = demoGrid(), h = DEMO.series_step / 3600;
+  return DEMO.servers.filter(s => s.status === 'ACTIVE').map(s => {
+    const cpu = demoSeries('cpu_cores', s.name, g), mem = demoSeries('mem_used_mib', s.name, g);
+    const nin = demoSeries('net_in_Bps', s.name, g), nout = demoSeries('net_out_Bps', s.name, g);
+    const n = cpu.filter(v => v != null).length, sum = a => a.reduce((t, v) => t + (v || 0), 0);
+    return { name: s.name, flavor: s.flavor, hours: n * h, vcpuH: n * h * s.vcpus, cpuH: sum(cpu) * h, ramHeld: n * h * s.ram_mib / 1024, ramUsed: sum(mem) * h / 1024,
+      netIn: sum(nin) * DEMO.series_step, netOut: sum(nout) * DEMO.series_step };
+  });
+}
+function sampleRows() {
+  // build-01 has been shut off since 10/26, so it has no usage in the kept period.
+  return SAMPLE.servers.filter(s => s.status === 'ACTIVE').map(s => {
+    const hours = COVERED_HOURS;
+    const cpu = s.cpu ?? .2, mem = s.mem ?? .4;
+    return { name: s.name, flavor: s.flavor, hours, vcpuH: hours * s.vcpus, cpuH: hours * s.vcpus * cpu, ramHeld: hours * s.ram_mib / 1024, ramUsed: hours * s.ram_mib * mem / 1024,
+      netIn: (s.netIn || 0) * hours * 3600, netOut: (s.netOut || 0) * hours * 3600 };
+  }).filter(r => r.hours > 0);
+}
+const n1 = v => v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(1);
+
+function render() {
+  resetCharts();
+  const demo = scn === 'demo';
+  document.getElementById('proj').textContent = `project ${demo ? DEMO.project.name : SAMPLE.project.name}`;
+  ROWS = demo ? demoRows() : sampleRows();
+  const firstDay = demo ? 1 : FIRST_KEPT_DAY;   // demo: nothing deleted yet, the cloud only exists since 11/17
+  const range = demo ? '11/18 11:00 – 11/18 20:20 UTC' : `11/${FIRST_KEPT_DAY} 00:00 – 11/${NOW_DAY} 20:20 UTC`;
+  document.getElementById('coverage').innerHTML = `<i class="fa fa-calendar"></i> Covers <strong>${range}</strong>${demo ? ' (all of this project\'s data)' : ` (${NOW_DAY - FIRST_KEPT_DAY + 1} of ${NOW_DAY} days)`}`;
+  document.getElementById('tbl-range').textContent = demo ? 'all instances that ran in November' : `instances that ran 11/${FIRST_KEPT_DAY}–11/${NOW_DAY}`;
+  document.getElementById('retention').innerHTML = demo
+    ? `<div class="alert alert-info" style="padding:8px 12px"><i class="fa fa-database"></i> <strong>Metrics are kept for ${RETENTION_DAYS} days.</strong>
+       This cloud was deployed on 11/17, so nothing has been deleted yet. Deletion starts on 12/2 (${RETENTION_DAYS} days after the first sample). From then on, a report run at the end of a month only covers its last ${RETENTION_DAYS} days.</div>`
+    : `<div class="alert alert-warning" style="padding:8px 12px"><i class="fa fa-exclamation-triangle"></i> <strong>Incomplete month: metrics are kept for ${RETENTION_DAYS} days.</strong>
+       11/1–11/${FIRST_KEPT_DAY - 1} and earlier months are no longer available, so these totals cover ${NOW_DAY - FIRST_KEPT_DAY + 1} of ${NOW_DAY} days.
+       For complete monthly reports, ask your cloud operator to keep metrics longer or to keep daily totals. Export before the data ages out if you need it.</div>`;
+  const T = k => ROWS.reduce((a, r) => a + r[k], 0);
+  const eff = pct(T('cpuH'), T('vcpuH'));
+  document.getElementById('cards').innerHTML = ROWS.length ?
+    card('panel-primary', 'microchip', n1(T('cpuH')), 'CPU-hours used', `of ${n1(T('vcpuH'))} vCPU-hours held (${eff}%)`) +
+    card('panel-primary', 'server', n1(T('ramUsed')), 'RAM GB-hours used', `of ${n1(T('ramHeld'))} held (${pct(T('ramUsed'), T('ramHeld'))}%)`) +
+    card('panel-primary', 'exchange', fmtBytes(T('netIn') + T('netOut')), 'Network traffic', `${fmtBytes(T('netIn'))} in | ${fmtBytes(T('netOut'))} out`) +
+    card('panel-primary', 'hdd-o', demo ? '0' : n1((550 + 290) * COVERED_HOURS), 'Volume GB-hours', demo ? 'no volumes' : '550 GB volumes + 290 GB snapshots')
+    : card('panel-grey', 'calendar-o', '—', 'No usage in this period', 'no instance of this project ran in the kept period', 'col-md-12');
+
+  // Daily chart (grouped bars: held = light, used = dark of the same hue)
+  const labels = [], held = [], used = [];
+  const perDay = h => h / COVERED_HOURS;   // sample: share of the period total that falls on a day with h hours
+  for (let i = 1; i <= NOW_DAY; i++) {
+    labels.push(`11/${i}`);
+    if (!demo && i < FIRST_KEPT_DAY) { held.push(null); used.push(null); continue; }
+    if (demo) { const today = i === 18; held.push(today ? +(T(metric === 'cpu' ? 'vcpuH' : 'ramHeld')).toFixed(1) : 0); used.push(today ? +(metric === 'net' ? (T('netIn') + T('netOut')) / 1048576 : T(metric === 'cpu' ? 'cpuH' : 'ramUsed')).toFixed(metric === 'net' ? 3 : 1) : 0); }
+    else {
+      // Held is flat (instances run all day); used dips on weekends. Weekday of the date is computed, not assumed.
+      const wkend = [0, 6].includes(new Date(2026, 10, i).getDay()), h = i === NOW_DAY ? NOW_HOURS : 24;
+      held.push(+((metric === 'cpu' ? T('vcpuH') : T('ramHeld')) * perDay(h)).toFixed(1));
+      used.push(+((metric === 'net' ? (T('netIn') + T('netOut')) / 1048576 : (metric === 'cpu' ? T('cpuH') : T('ramUsed'))) * perDay(h) * (.95 + rnd() * .1) * (wkend ? .7 : 1.08)).toFixed(1));
+    }
+  }
+  const unit = { cpu: ['vCPU-hours held', 'CPU-hours used', ''], mem: ['RAM GB-hours held', 'RAM GB-hours used', ''], net: [null, 'Traffic (MB)', ' MB'] }[metric];
+  document.getElementById('d-legend').innerHTML = legend(unit[0] ? [[unit[0], C.light], [unit[1], C.blue]] : [[unit[1], C.blue]]);
+  const ds = [];
+  if (unit[0]) ds.push({ label: unit[0], data: held, backgroundColor: C.light, borderRadius: 4, borderSkipped: 'start' });
+  ds.push({ label: unit[1], data: used, backgroundColor: C.blue, borderRadius: 4, borderSkipped: 'start' });
+  // Grey band over the days without data, with a label, so missing days never read as zero usage.
+  const gap = demo ? [1, DEPLOYED_DAY - 1, 'before this cloud was deployed (11/17)'] : [1, FIRST_KEPT_DAY - 1, `not kept: older than ${RETENTION_DAYS} days`];
+  const band = { id: 'band', beforeDatasetsDraw(ch) {
+    const x = ch.scales.x, a = ch.chartArea, w = x.getPixelForValue(1) - x.getPixelForValue(0);
+    const x0 = x.getPixelForValue(gap[0] - 1) - w / 2, x1 = x.getPixelForValue(gap[1] - 1) + w / 2, c = ch.ctx;
+    c.save(); c.fillStyle = '#f2f2f2'; c.fillRect(x0, a.top, x1 - x0, a.bottom - a.top);
+    c.fillStyle = '#777'; c.font = '12px sans-serif'; c.textAlign = 'center';
+    const words = gap[2].split(': '); words.forEach((t, k) => c.fillText(t + (k < words.length - 1 ? ':' : ''), (x0 + x1) / 2, (a.top + a.bottom) / 2 + (k - (words.length - 1) / 2) * 16));
+    c.restore(); } };
+  CHARTS.push(new Chart(document.getElementById('daily'), { type: 'bar', plugins: [band], data: { labels, datasets: ds },
+    options: { maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false }, datasets: { bar: { categoryPercentage: .7, barPercentage: .9 } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y}${unit[2]}` } } },
+      scales: { y: { beginAtZero: true, grid: { color: '#f0f0f0' }, ticks: { maxTicksLimit: 5 } }, x: { grid: { display: false } } } } }));
+  document.getElementById('d-note').innerHTML = demo ? '<i class="fa fa-info-circle"></i> The demo instances were created on 11/18 at about 11:00, so only that day has usage.'
+    : `<i class="fa fa-info-circle"></i> Grey: days whose metrics were already deleted. Held is flat because every instance ran all day (11/${NOW_DAY} is shorter: it runs to 20:20). Used is lower on weekends.`;
+
+  // Table
+  const sorted = [...ROWS].sort((a, b) => b.vcpuH - a.vcpuH);
+  document.getElementById('rows').innerHTML = sorted.map(r => {
+    const e = r.cpuH / r.vcpuH;
+    return `<tr><td><a class="tbl-link" href="project-instance-metrics.html${demo ? '' : '?scn=sample'}#${r.name}"><strong>${r.name}</strong></a></td><td>${r.flavor}</td><td class="text-right">${n1(r.hours)}</td>
+      <td class="text-right">${n1(r.vcpuH)}</td><td class="text-right">${n1(r.cpuH)}</td>
+      <td><span class="ratio ${e < .1 ? 'low' : ''}"><span style="width:${Math.min(100, e * 100)}%"></span></span>${pct(r.cpuH, r.vcpuH)}%</td>
+      <td class="text-right">${n1(r.ramHeld)}</td><td class="text-right">${n1(r.ramUsed)}</td><td class="text-right">${fmtBytes(r.netIn)} / ${fmtBytes(r.netOut)}</td></tr>`;
+  }).join('') || '<tr><td colspan="9" class="text-center text-muted" style="padding:20px">No instance ran in this period.</td></tr>';
+  document.getElementById('foot').innerHTML = ROWS.length ? `<tr style="font-weight:600;background:#fafafa"><td>Total</td><td></td><td class="text-right">${n1(T('hours'))}</td><td class="text-right">${n1(T('vcpuH'))}</td>
+    <td class="text-right">${n1(T('cpuH'))}</td><td>${eff}%</td><td class="text-right">${n1(T('ramHeld'))}</td><td class="text-right">${n1(T('ramUsed'))}</td><td class="text-right">${fmtBytes(T('netIn'))} / ${fmtBytes(T('netOut'))}</td></tr>` : '';
+  const never = demo ? DEMO.servers.filter(s => s.status === 'ERROR') : SAMPLE.servers.filter(s => s.status === 'ERROR');
+  document.getElementById('tbl-foot').innerHTML = `<i class="fa fa-info-circle"></i> Sorted by vCPU-hours held. ` +
+    (never.length ? `Not listed because they never ran: <strong>${never.map(s => s.name).join(', ')}</strong> (ERROR). They report no metrics, but they still held quota; Nova's usage summary on Project → Overview counts them for their whole lifetime.` : '');
+}
+
+document.getElementById('csv').onclick = () => {
+  const from = scn === 'demo' ? '2026-11-18T11:00Z' : `2026-11-${String(FIRST_KEPT_DAY).padStart(2, '0')}T00:00Z`, to = '2026-11-18T20:20Z';
+  const head = ['period_start', 'period_end', 'instance', 'flavor', 'hours_running', 'vcpu_hours_held', 'cpu_hours_used', 'ram_gb_hours_held', 'ram_gb_hours_used', 'network_in_bytes', 'network_out_bytes'];
+  const lines = [head.join(',')].concat(ROWS.map(r => [from, to, r.name, r.flavor, r.hours.toFixed(2), r.vcpuH.toFixed(2), r.cpuH.toFixed(2), r.ramHeld.toFixed(2), r.ramUsed.toFixed(2), Math.round(r.netIn), Math.round(r.netOut)].join(',')));
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/csv' }));
+  a.download = `usage-${scn === 'demo' ? 'demo' : 'web-shop'}-${from.slice(0, 10)}_to_${to.slice(0, 10)}.csv`; a.click();
+};
+scenarios(k => { scn = k; render(); });
+document.getElementById('period').onclick = e => { const b = e.target.closest('button'); if (!b) return; period = b.dataset.p;
+  document.querySelectorAll('#period button').forEach(x => x.classList.toggle('active', x === b)); render(); };
+document.getElementById('metric').onclick = e => { const b = e.target.closest('button'); if (!b) return; metric = b.dataset.m;
+  document.querySelectorAll('#metric button').forEach(x => x.classList.toggle('active', x === b)); render(); };
+</script>
+</body>
+</html>

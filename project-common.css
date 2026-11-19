@@ -1,0 +1,94 @@
+/* Shared styles for the Project → Telemetry mockups.
+   Same base as the admin mockups (instance-health.html, compute-host-health-v2.html):
+   Horizon's Bootstrap 3 + Font Awesome 4, Bootstrap contextual colours for status. */
+body { background: #f5f5f5; font-size: 13px; }
+.hz-topbar { background: #2b2b2b; color: #ddd; height: 45px; line-height: 45px; padding: 0 15px; }
+.hz-topbar .brand { color: #fff; font-weight: 600; margin-right: 20px; }
+.hz-sidebar { background: #fff; border-right: 1px solid #ddd; min-height: calc(100vh - 45px); padding: 10px 0; }
+.hz-sidebar .grp { color: #888; text-transform: uppercase; font-size: 11px; padding: 10px 15px 4px; }
+.hz-sidebar .sub { padding-left: 20px; }
+.hz-sidebar a { display: block; padding: 5px 25px; color: #333; }
+.hz-sidebar a.active { background: #e8f1fa; border-left: 3px solid #337ab7; color: #337ab7; font-weight: 600; }
+.hz-content { padding: 15px 25px; }
+.mock-banner { background: #fff3cd; border: 1px dashed #c69500; padding: 8px 12px; margin-bottom: 15px; }
+.mock-banner .btn { margin-left: 4px; }
+.mock-note { font-size: 11px; color: #a07800; font-style: italic; display: block; margin-top: 4px; }
+.page-header { margin-top: 0; }
+.page-header small { font-size: 55%; }
+.toolbar { margin-bottom: 15px; }
+.refresh-info { color: #777; line-height: 30px; }
+.help-block-sm { font-size: 12px; color: #777; }
+.bounded { font-size: 11px; color: #3c763d; background: #dff0d8; border-radius: 3px; padding: 1px 5px; margin-left: 6px; font-weight: normal; }
+.src { font-size: 11px; color: #555; background: #eee; border-radius: 3px; padding: 1px 5px; margin-left: 6px; font-weight: normal; }
+
+/* Summary cards (same as admin) */
+.metric-card .panel-heading { display: flex; align-items: center; padding: 18px 15px; min-height: 110px; }
+.metric-icon { font-size: 3em; opacity: .3; margin-right: 15px; }
+.metric-value { font-size: 2.3em; font-weight: 300; line-height: 1; margin-bottom: 4px; }
+.metric-value small { font-size: .45em; }
+.metric-label { font-size: .95em; opacity: .9; }
+.metric-sub { font-size: .85em; opacity: .85; margin-top: 3px; }
+.panel-green  > .panel-heading { background: #5cb85c; border-color: #4cae4c; color: #fff; }
+.panel-yellow > .panel-heading { background: #f0ad4e; border-color: #eea236; color: #fff; }
+.panel-red    > .panel-heading { background: #d9534f; border-color: #d43f3a; color: #fff; }
+.panel-grey   > .panel-heading { background: #999; border-color: #888; color: #fff; }
+.panel-green, .panel-yellow, .panel-red, .panel-grey { border: 0; }
+/* Equal-height cards: the row becomes a flex container, every card stretches to the tallest one. */
+#cards { display: flex; flex-wrap: wrap; }
+#cards::before, #cards::after { display: none; }   /* Bootstrap clearfix pseudo-elements would become flex items */
+#cards > [class*="col-"] { display: flex; }
+#cards .metric-card { flex: 1; display: flex; flex-direction: column; }
+#cards .metric-card .panel-heading { flex: 1; }
+/* Smaller counters in filter buttons */
+.btn .badge { font-size: 10px; font-weight: 600; padding: 2px 5px; margin-left: 2px; background: #888; }
+.btn.active .badge { background: #555; }
+
+/* Quota rows: one stacked bar per resource. Segments are separated by a 2px surface gap. */
+.quota-row { display: flex; align-items: center; margin: 9px 0; }
+.quota-row .q-name { width: 150px; font-weight: 600; }
+.quota-row .q-bar { flex: 1; display: flex; height: 18px; background: #eee; border-radius: 4px; overflow: hidden; gap: 2px; position: relative; }
+.quota-row .q-bar .seg { height: 100%; min-width: 2px; }
+.quota-row .q-bar .seg:hover { opacity: .8; }
+.quota-row .q-val { width: 170px; text-align: right; padding-left: 10px; white-space: nowrap; }
+.quota-row .q-fc { width: 190px; padding-left: 12px; font-size: 12px; white-space: nowrap; }
+.q-legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 6px 0 0 150px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+
+/* Ratio bars inside tables (used ÷ allocated) */
+.ratio { display: inline-block; width: 90px; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
+.ratio > span { display: block; height: 100%; border-radius: 0 4px 4px 0; background: #337ab7; }
+.ratio.warn > span { background: #f0ad4e; }
+.ratio.crit > span { background: #d9534f; }
+.ratio.low > span { background: #9bbbd9; }
+
+table.tbl td, table.tbl th { vertical-align: middle !important; }
+table.tbl tr.row-main { cursor: pointer; }
+table.tbl tr.detail td { background: #fafafa; border-top: 0; }
+.tag { display: inline-block; box-sizing: border-box; height: 20px; line-height: 18px; margin: 1px 4px 1px 0; padding: 0 6px;
+  border-radius: 3px; font-size: 11px; border: 1px solid; white-space: nowrap; vertical-align: middle; }
+.tag .fa, .label .fa { font-size: 11px; line-height: inherit; vertical-align: top; }   /* icons don't change the badge height */
+.label { display: inline-block; box-sizing: border-box; height: 20px; line-height: 20px; padding-top: 0; padding-bottom: 0; vertical-align: middle; }
+.tag-crit { border-color: #d9534f; color: #a94442; background: #f9e5e4; }
+.tag-warn { border-color: #f0ad4e; color: #8a6d3b; background: #fcf3e3; }
+.tag-info { border-color: #bbb; color: #555; background: #f3f3f3; }
+.tag-ok   { border-color: #5cb85c; color: #3c763d; background: #e6f4e6; }
+.tag-blue { border-color: #337ab7; color: #23527c; background: #e8f1fa; }
+.spark { width: 110px; height: 28px; }
+.chart-box { position: relative; height: 220px; }
+.chart-box.sm { height: 160px; }
+.filters .form-control { display: inline-block; width: auto; margin-right: 6px; }
+.empty-state { padding: 30px 20px; text-align: center; color: #777; }
+.empty-state .fa { font-size: 3em; opacity: .4; display: block; margin-bottom: 10px; }
+.caret-cell { width: 18px; color: #999; }
+.thr-table td, .thr-table th { padding: 3px 12px 3px 0; vertical-align: top; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; margin-bottom: 4px; }
+.chart-legend .ln { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 5px; }
+.chart-legend .ln.dash { border-top-style: dashed; }
+.verdict { border-left: 4px solid; padding: 10px 14px; background: #fff; margin-bottom: 15px; }
+.verdict h4 { margin: 0 0 4px; }
+.verdict-ok { border-color: #5cb85c; }
+.verdict-warn { border-color: #f0ad4e; }
+.verdict-crit { border-color: #d9534f; }
+.kv td { padding: 2px 14px 2px 0; }
+.kv td:first-child { color: #777; }
+a.tbl-link { cursor: pointer; }

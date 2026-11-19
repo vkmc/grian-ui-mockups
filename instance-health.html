@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Instance Health – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<style>
+  body { background: #f5f5f5; font-size: 13px; }
+  .hz-topbar { background: #2b2b2b; color: #ddd; height: 45px; line-height: 45px; padding: 0 15px; }
+  .hz-topbar .brand { color: #fff; font-weight: 600; margin-right: 20px; }
+  .hz-sidebar { background: #fff; border-right: 1px solid #ddd; min-height: calc(100vh - 45px); padding: 10px 0; }
+  .hz-sidebar .grp { color: #888; text-transform: uppercase; font-size: 11px; padding: 10px 15px 4px; }
+  .hz-sidebar a { display: block; padding: 5px 25px; color: #333; }
+  .hz-sidebar a.active { background: #e8f1fa; border-left: 3px solid #337ab7; color: #337ab7; font-weight: 600; }
+  .hz-content { padding: 15px 25px; }
+  .mock-banner { background: #fff3cd; border: 1px dashed #c69500; padding: 8px 12px; margin-bottom: 15px; }
+  .mock-banner .btn { margin-left: 4px; }
+  .mock-note { font-size: 11px; color: #a07800; font-style: italic; display: block; margin-top: 4px; }
+  .page-header { margin-top: 0; }
+  .toolbar { margin-bottom: 15px; }
+  .refresh-info { color: #777; line-height: 30px; }
+  .help-block-sm { font-size: 12px; color: #777; }
+  .bounded { font-size: 11px; color: #3c763d; background: #dff0d8; border-radius: 3px; padding: 1px 5px; margin-left: 6px; font-weight: normal; }
+
+  .metric-card .panel-heading { display: flex; align-items: center; padding: 18px 15px; min-height: 110px; }
+  .metric-icon { font-size: 3em; opacity: .3; margin-right: 15px; }
+  .metric-value { font-size: 2.3em; font-weight: 300; line-height: 1; margin-bottom: 4px; }
+  .metric-label { font-size: .95em; opacity: .9; }
+  .metric-sub { font-size: .85em; opacity: .85; margin-top: 3px; }
+  .panel-green  > .panel-heading { background: #5cb85c; border-color: #4cae4c; color: #fff; }
+  .panel-yellow > .panel-heading { background: #f0ad4e; border-color: #eea236; color: #fff; }
+  .panel-red    > .panel-heading { background: #d9534f; border-color: #d43f3a; color: #fff; }
+  .panel-green, .panel-yellow, .panel-red { border: 0; }
+
+  /* State distribution: one stacked bar, 2px surface gap between segments */
+  .state-bar { display: flex; height: 26px; border-radius: 4px; overflow: hidden; background: #fff; gap: 2px; }
+  .state-bar .seg { height: 100%; min-width: 3px; cursor: pointer; }
+  .state-bar .seg:hover { opacity: .8; }
+  .state-legend { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  .state-legend a { color: #333; cursor: pointer; }
+  .state-legend a.dim { opacity: .4; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+
+  /* Symptom tiles = filters */
+  .symptoms { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
+  .sym { flex: 1 1 150px; background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 10px 12px; cursor: pointer; text-align: left; }
+  .sym:hover { border-color: #337ab7; }
+  .sym.active { border: 2px solid #337ab7; padding: 9px 11px; background: #f4f8fc; }
+  .sym .n { font-size: 1.9em; font-weight: 300; line-height: 1.1; }
+  .sym .t { font-weight: 600; }
+  .sym .d { font-size: 11px; color: #777; }
+  .sym .split { font-size: 11px; margin-top: 2px; }
+
+  table.inst td, table.inst th { vertical-align: middle !important; }
+  table.inst tr.row-main { cursor: pointer; }
+  table.inst tr.detail td { background: #fafafa; border-top: 0; }
+  .issue { display: inline-block; margin: 1px 4px 1px 0; padding: 1px 6px; border-radius: 3px; font-size: 11px; border: 1px solid; white-space: nowrap; }
+  .issue-crit { border-color: #d9534f; color: #a94442; background: #f9e5e4; }
+  .issue-warn { border-color: #f0ad4e; color: #8a6d3b; background: #fcf3e3; }
+  .issue-info { border-color: #bbb; color: #555; background: #f3f3f3; }
+  .spark { width: 110px; height: 28px; }
+  .mini-chart { position: relative; height: 150px; }
+  .filters .form-control { display: inline-block; width: auto; margin-right: 6px; }
+  .empty-state { padding: 40px 20px; text-align: center; color: #777; }
+  .empty-state .fa { font-size: 3em; opacity: .4; display: block; margin-bottom: 10px; }
+  .caret-cell { width: 18px; color: #999; }
+  .thr-table td { padding: 2px 10px 2px 0; }
+
+  /* Badges: same height whatever the icon */
+  .label, .issue, .tag { display: inline-block; box-sizing: border-box; height: 20px; line-height: 18px; padding-top: 0; padding-bottom: 0; vertical-align: middle; }
+  .label { line-height: 20px; }
+  .label .fa, .issue .fa, .tag .fa { font-size: 11px; line-height: inherit; vertical-align: top; }
+  .thr-table td, .thr-table th { padding: 3px 12px 3px 0; vertical-align: top; }
+
+  /* Equal-height summary cards (same rule as project-common.css) */
+  #cards { display: flex; flex-wrap: wrap; }
+  #cards::before, #cards::after { display: none; }
+  #cards > [class*="col-"] { display: flex; }
+  #cards .metric-card { flex: 1; display: flex; flex-direction: column; }
+  #cards .metric-card .panel-heading { flex: 1; }
+</style>
+</head>
+<body>
+
+<div class="hz-topbar"><span class="brand">openstack.</span> <i class="fa fa-cube"></i> admin ▾ <span class="pull-right"><i class="fa fa-user"></i> admin ▾</span></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs">
+    <div class="grp">Project</div><div class="grp">Admin</div>
+    <a>Overview</a><div class="grp" style="padding-left:20px">Compute</div><div class="grp" style="padding-left:20px">Volume</div>
+    <div class="grp" style="padding-left:20px">Telemetry</div>
+    <a href="compute-host-health-v2.html">Compute Host Health</a>
+    <a href="instance-health.html" class="active">Instance Health</a>
+    <a href="admin-storage-health.html">Storage Health</a>
+    <a href="admin-top-consumers.html">Top Consumers</a>
+    <a href="admin-network-health.html">Network Health</a>
+    <a href="admin-provisioning.html">Provisioning</a>
+    <div class="grp">Identity</div>
+  </div>
+
+  <div class="col-sm-10 hz-content">
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong>, sample data. Cloud size:
+      <button class="btn btn-xs btn-default" data-n="1">1 VM (our DevStack)</button>
+      <button class="btn btn-xs btn-default active" data-n="40">40 VMs</button>
+      <button class="btn btn-xs btn-default" data-n="5000">5000 VMs</button>
+      | State:
+      <button class="btn btn-xs btn-default" data-state="healthy">All healthy</button>
+      <button class="btn btn-xs btn-default" data-state="error">Datasource error</button>
+      <button class="btn btn-xs btn-default" data-state="partial">Nova unreachable</button>
+      <span class="mock-note">Every panel returns a bounded amount of data, whatever the cloud size. Click rows, symptom tiles and state-bar segments.</span>
+    </div>
+
+    <div class="page-header"><h1>Instance Health</h1></div>
+
+    <div class="row toolbar">
+      <div class="col-sm-7">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Time range" id="range">
+          <button class="btn btn-default" data-range="1h">1h</button>
+          <button class="btn btn-default active" data-range="6h">6h</button>
+          <button class="btn btn-default" data-range="24h">24h</button>
+          <button class="btn btn-default" data-range="7d">7d</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px">Range for the trend charts. Symptoms always use the last 5 min (rates) or 15 min (averages).</span>
+      </div>
+      <div class="col-sm-5 text-right refresh-info"><i class="fa fa-refresh"></i> Auto-refresh every 30s | last updated <span>just now</span></div>
+    </div>
+
+    <div id="state-error" class="alert alert-danger" style="display:none">
+      <i class="fa fa-exclamation-circle"></i> <strong>Error loading telemetry data:</strong>
+      could not reach the metric-storage (Aetos) endpoint. Instance states below come from Nova only; symptoms are unavailable. Retrying in 30s.
+    </div>
+    <div id="state-partial" class="alert alert-warning" style="display:none">
+      <i class="fa fa-exclamation-triangle"></i> <strong>Could not reach the Compute (Nova) API.</strong>
+      Showing metric symptoms only: stopped and errored instances, host names and instance states are missing.
+    </div>
+
+    <div id="state-data">
+      <!-- 1. Summary cards -->
+      <div class="row" id="cards"></div>
+
+      <!-- 2. Instance states (Nova) -->
+      <div class="panel panel-default" id="states-panel">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-tasks"></i> Instances by state
+          <span class="bounded" title="Fixed set of states, whatever the cloud size">7 states</span></h3></div>
+        <div class="panel-body">
+          <div class="state-bar" id="state-bar" role="img" aria-label="Instance state distribution"></div>
+          <div class="state-legend" id="state-legend"></div>
+          <p class="help-block-sm" style="margin:8px 0 0">From the Compute API, all projects. Click a state to filter the list below.</p>
+        </div>
+      </div>
+
+      <!-- 3. Symptom tiles (act as filters) -->
+      <div class="symptoms" id="symptoms"></div>
+
+      <!-- 4. Attention list -->
+      <div class="panel panel-default">
+        <div class="panel-heading">
+          <h3 class="panel-title" style="display:inline-block"><i class="fa fa-bell"></i> Instances needing attention <span class="bounded">max 25 rows</span></h3>
+          <div class="clearfix"></div>
+        </div>
+        <div class="panel-body filters" style="padding-bottom:5px">
+          <input id="f-search" class="form-control input-sm" placeholder="Name or UUID…" style="width:200px">
+          <select id="f-project" class="form-control input-sm"></select>
+          <select id="f-sev" class="form-control input-sm">
+            <option value="0">All severities</option><option value="3">Critical only</option><option value="2">Warning and above</option>
+          </select>
+          <span id="f-active" class="help-block-sm"></span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover inst" style="margin-bottom:0">
+            <thead><tr>
+              <th class="caret-cell"></th><th>Severity</th><th>Instance</th><th>Project</th><th>Host</th><th>Status</th>
+              <th>Issues</th><th title="Trend of the worst symptom over the selected range">Worst symptom trend</th><th class="text-right">Last sample</th>
+            </tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div class="panel-footer help-block-sm" id="footer"></div>
+      </div>
+
+      <!-- 5. Thresholds (collapsed) -->
+      <div class="panel panel-default">
+        <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('thr').classList.toggle('hidden')">
+          <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+        <div class="panel-body hidden" id="thr">
+          <table class="thr-table help-block-sm" style="color:#333">
+            <tr><th>Item</th><th>Measure</th><th>Warning</th><th>Critical</th></tr>
+            <tr><td>Instances by state</td><td>Compute API, server list for all projects (status, power state, task state)</td><td colspan="2">Fixed set of states</td></tr>
+            <tr><td>Cards</td><td>Counts over the list below; "reporting metrics" = a <code>cpu</code> sample in the last 10 min</td><td colspan="2">Card colour from the worst symptom</td></tr>
+            <tr><td>Attention list</td><td>Instances with at least one issue, worst first, then by the worst value</td><td colspan="2">Max 25 rows; filters narrow it down</td></tr>
+            <tr><td>CPU contention</td><td><code>rate(cpu_delay[5m])</code> ÷ vCPUs: share of time vCPUs wait for a physical CPU</td><td>≥ 5%</td><td>≥ 20%</td></tr>
+            <tr><td>Memory pressure</td><td><code>rate(memory_swap_in[5m]) + rate(memory_swap_out[5m])</code></td><td>&gt; 0 MB/s</td><td>≥ 10 MB/s</td></tr>
+            <tr><td>Slow disk</td><td><code>rate(disk_device_*_latency[5m]) ÷ rate(disk_device_*_requests[5m])</code>, worst device</td><td>≥ 20 ms</td><td>≥ 100 ms</td></tr>
+            <tr><td>Network drops/errors</td><td><code>rate(network_*_packets_{drop,error}[5m])</code>, all interfaces</td><td>&gt; 0 pkt/s</td><td>≥ 10 pkt/s</td></tr>
+            <tr><td>Lifecycle state</td><td>Nova status / power state</td><td>ACTIVE but not running | stuck task &gt; 30 min | SHUTOFF?</td><td>ERROR | crashed</td></tr>
+            <tr><td>No telemetry</td><td>ACTIVE + running in Nova, no <code>cpu</code> sample in 10 min</td><td colspan="2">Info</td></tr>
+          </table>
+          <p class="help-block-sm" style="margin-top:8px">Defaults live in <code>grian_ui/config.py</code> and can be overridden in <code>local_settings</code> with <code>GRIAN_PLUGIN['instance_health_thresholds']</code>.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="state-healthy" class="panel panel-default" style="display:none"><div class="panel-body empty-state">
+      <i class="fa fa-check-circle text-success"></i><h4>No instances need attention</h4>
+      <p>All <span id="healthy-n"></span> running instances are within thresholds and every instance is in an expected state.</p>
+    </div></div>
+  </div>
+</div></div>
+
+<script>
+const T = { cpuW: 5, cpuC: 20, swapW: 0, swapC: 10, latW: 20, latC: 100, netW: 0, netC: 10 };
+// Status colours are the Bootstrap 3 contextual colours Horizon already uses; every state also has a text label.
+const STATES = [
+  { k: 'ACTIVE',    l: 'Active (running)', c: '#5cb85c' },
+  { k: 'SHUTOFF',   l: 'Shut off',         c: '#999999' },
+  { k: 'PAUSED',    l: 'Paused',           c: '#5bc0de' },
+  { k: 'SUSPENDED', l: 'Suspended',        c: '#337ab7' },
+  { k: 'BUILD',     l: 'Building / in a task', c: '#c7c7c7' },
+  { k: 'ACTIVE!',   l: 'Active, not running',  c: '#f0ad4e' },
+  { k: 'ERROR',     l: 'Error',            c: '#d9534f' },
+];
+const SYM = [
+  { k: 'state', t: 'State problems',      d: 'ERROR, crashed, stuck', icon: 'exclamation-circle' },
+  { k: 'cpu',   t: 'CPU contention',      d: 'waiting for host CPU', icon: 'tachometer' },
+  { k: 'mem',   t: 'Memory pressure',     d: 'swapping', icon: 'exchange' },
+  { k: 'disk',  t: 'Slow disk',           d: 'high I/O latency', icon: 'hdd-o' },
+  { k: 'net',   t: 'Network drops/errors',d: 'packets lost', icon: 'sitemap' },
+  { k: 'tele',  t: 'No telemetry',        d: 'running, not reporting', icon: 'eye-slash' },
+];
+const PROJECTS = ['admin', 'demo', 'web-prod', 'ci-runners', 'data-lake', 'alt_demo'];
+let rnd; function seeded(s) { return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+const pick = a => a[Math.floor(rnd() * a.length)];
+const uuid = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, () => Math.floor(rnd() * 16).toString(16));
+
+function gen(n, healthy) {
+  rnd = seeded(7); const out = [];
+  if (n === 1) return [{ name: 'grian-test-vm', id: '07bbd2f8-1c2e-4b3a-9d41-6f0c2a8e5b17', project: 'admin', host: 'devstack-grian',
+    state: 'SHUTOFF', m: null, last: null, task: null, vcpus: 1 }];
+  const hosts = Array.from({ length: Math.max(2, Math.ceil(n / 25)) }, (_, i) => 'compute-' + String(i + 1).padStart(3, '0'));
+  for (let i = 0; i < n; i++) {
+    const r = rnd();
+    let state = r < .80 ? 'ACTIVE' : r < .90 ? 'SHUTOFF' : r < .93 ? 'PAUSED' : r < .95 ? 'SUSPENDED' : r < .965 ? 'BUILD' : r < .98 ? 'ACTIVE!' : 'ERROR';
+    if (healthy && (state === 'ERROR' || state === 'ACTIVE!')) state = 'ACTIVE';
+    const inst = { name: pick(['web', 'db', 'cache', 'worker', 'ci', 'etl', 'api']) + '-' + String(i + 1).padStart(4, '0'), id: uuid(),
+      project: pick(PROJECTS), host: pick(hosts), state, vcpus: pick([1, 2, 4, 8]), m: null, last: null,
+      task: state === 'BUILD' ? { name: pick(['spawning', 'migrating', 'resize_migrating']), mins: Math.round(rnd() * 90) } : null };
+    if (state === 'ACTIVE') {
+      const s = () => rnd();
+      inst.m = { cpu: healthy ? s() * 3 : s() > .9 ? 4 + s() * 30 : s() * 3,
+                 swap: healthy ? 0 : s() > .95 ? +(s() * 25).toFixed(1) : 0,
+                 lat: healthy ? 1 + s() * 8 : s() > .93 ? 15 + s() * 140 : 1 + s() * 8, dev: 'vda',
+                 net: healthy ? 0 : s() > .96 ? +(s() * 30).toFixed(1) : 0 };
+      inst.last = 5 + Math.round(rnd() * 25);
+      if (!healthy && rnd() < .02) { inst.m = null; inst.last = 600 + Math.round(rnd() * 3000); }
+    }
+    out.push(inst);
+  }
+  return out;
+}
+
+function evaluate(x) {
+  const iss = [];
+  const add = (k, sev, txt, v) => iss.push({ k, sev, txt, v });
+  if (x.state === 'ERROR') add('state', 3, 'ERROR state');
+  if (x.state === 'ACTIVE!') add('state', 2, 'ACTIVE but powered off');
+  if (x.task && x.task.mins > 30) add('state', 2, `stuck in ${x.task.name} for ${x.task.mins} min`);
+  if (x.state === 'ACTIVE' && !x.m) add('tele', 1, `no samples for ${Math.round(x.last / 60)} min`);
+  if (x.m) {
+    const m = x.m;
+    if (m.cpu >= T.cpuC) add('cpu', 3, `CPU wait ${m.cpu.toFixed(0)}%`, m.cpu); else if (m.cpu >= T.cpuW) add('cpu', 2, `CPU wait ${m.cpu.toFixed(0)}%`, m.cpu);
+    if (m.swap >= T.swapC) add('mem', 3, `swap ${m.swap} MB/s`, m.swap); else if (m.swap > T.swapW) add('mem', 2, `swap ${m.swap} MB/s`, m.swap);
+    if (m.lat >= T.latC) add('disk', 3, `${m.dev} latency ${m.lat.toFixed(0)} ms`, m.lat); else if (m.lat >= T.latW) add('disk', 2, `${m.dev} latency ${m.lat.toFixed(0)} ms`, m.lat);
+    if (m.net >= T.netC) add('net', 3, `${m.net} drops/s`, m.net); else if (m.net > T.netW) add('net', 2, `${m.net} drops/s`, m.net);
+  }
+  iss.sort((a, b) => b.sev - a.sev);
+  x.issues = iss; x.sev = iss.length ? iss[0].sev : 0;
+}
+
+const SEV = { 3: ['danger', 'exclamation-circle', 'Critical'], 2: ['warning', 'exclamation-triangle', 'Warning'], 1: ['default', 'info-circle', 'Info'] };
+const badge = s => `<span class="label label-${SEV[s][0]}"><i class="fa fa-${SEV[s][1]}"></i> ${SEV[s][2]}</span>`;
+const stateLabel = k => {
+  const s = STATES.find(s => s.k === k);
+  return `<span class="sw" style="background:${s.c}"></span>${k === 'ACTIVE!' ? 'ACTIVE <small class="text-muted">(power: shutdown)</small>' : k}`;
+};
+const ago = s => s == null ? '<span class="text-muted">—</span>' : s < 60 ? `${s}s ago` : s < 3600 ? `<span class="text-danger">${Math.round(s / 60)} min ago</span>` : `<span class="text-danger">${(s / 3600).toFixed(1)} h ago</span>`;
+
+let all = [], f = { sym: null, state: null, q: '', project: '', sev: 0 }, open = new Set(), charts = [], novaDown = false;
+
+function render() {
+  charts.forEach(c => c.destroy()); charts = [];
+  const attn = all.filter(x => x.sev > 0);
+  const crit = attn.filter(x => x.sev === 3).length, warn = attn.filter(x => x.sev === 2).length, info = attn.filter(x => x.sev === 1).length;
+  const running = all.filter(x => x.state === 'ACTIVE').length;
+  const reporting = all.filter(x => x.m).length;
+  const hostsAff = new Set(attn.filter(x => x.sev >= 2).map(x => x.host)).size;
+
+  const card = (cls, icon, val, label, sub) => `<div class="col-lg-3 col-md-6 col-sm-6"><div class="panel ${cls} metric-card"><div class="panel-heading">
+    <i class="fa fa-${icon} metric-icon"></i><div class="text-right" style="flex:1"><div class="metric-value">${val}</div><div class="metric-label">${label}</div><div class="metric-sub">${sub}</div></div></div></div></div>`;
+  document.getElementById('cards').innerHTML =
+    card(crit ? 'panel-red' : warn ? 'panel-yellow' : 'panel-green', crit || warn ? 'exclamation-triangle' : 'check-circle', crit + warn, 'Instances needing attention', `${crit} critical | ${warn} warning${info ? ` | ${info} info` : ''}`) +
+    card('panel-primary', 'desktop', novaDown ? '?' : all.length, 'Instances (all projects)', novaDown ? 'Compute API unavailable' : `${running} running`) +
+    card(running - reporting > 0 ? 'panel-yellow' : 'panel-green', 'line-chart', `${reporting}<small style="font-size:.45em"> / ${novaDown ? '?' : running}</small>`, 'Running VMs reporting metrics', running - reporting > 0 ? `${running - reporting} not reporting` : 'all reporting') +
+    card(hostsAff ? 'panel-yellow' : 'panel-green', 'server', novaDown ? '?' : hostsAff, 'Compute hosts affected', hostsAff ? 'hosts with a warning or critical VM' : 'none');
+
+  // State bar
+  const counts = STATES.map(s => ({ ...s, n: all.filter(x => x.state === s.k).length }));
+  document.getElementById('states-panel').style.display = novaDown ? 'none' : '';
+  document.getElementById('state-bar').innerHTML = counts.filter(s => s.n).map(s =>
+    `<div class="seg" style="flex:${s.n};background:${s.c};${f.state && f.state !== s.k ? 'opacity:.3' : ''}" title="${s.l}: ${s.n} (${Math.round(100 * s.n / all.length)}%)" data-state="${s.k}"></div>`).join('');
+  document.getElementById('state-legend').innerHTML = counts.map(s =>
+    `<a data-state="${s.k}" class="${f.state && f.state !== s.k ? 'dim' : ''}"><span class="sw" style="background:${s.c}"></span>${s.l} <strong>${s.n}</strong></a>`).join('');
+
+  // Symptom tiles
+  document.getElementById('symptoms').innerHTML = SYM.map(s => {
+    const hit = all.filter(x => x.issues.some(i => i.k === s.k));
+    const c = hit.filter(x => x.issues.find(i => i.k === s.k).sev === 3).length;
+    const disabled = (novaDown && (s.k === 'state' || s.k === 'tele'));
+    return `<button class="sym ${f.sym === s.k ? 'active' : ''}" data-sym="${s.k}" ${disabled ? 'disabled style="opacity:.5"' : ''}>
+      <div class="t"><i class="fa fa-${s.icon}"></i> ${s.t}</div>
+      <div class="n ${hit.length ? (c ? 'text-danger' : s.k === 'tele' ? '' : 'text-warning') : 'text-muted'}">${disabled ? '–' : hit.length}</div>
+      <div class="d">${s.d}</div>
+      <div class="split">${hit.length ? `${c ? `<span class="text-danger">${c} critical</span> | ` : ''}${hit.length - c} ${s.k === 'tele' ? 'info' : 'warning'}` : '&nbsp;'}</div></button>`;
+  }).join('');
+
+  // Filters
+  const projSel = document.getElementById('f-project');
+  if (!projSel.options.length) projSel.innerHTML = '<option value="">All projects</option>' + PROJECTS.map(p => `<option>${p}</option>`).join('');
+  let list = all.filter(x => f.state ? x.state === f.state : x.sev > 0);
+  if (f.sym) list = list.filter(x => x.issues.some(i => i.k === f.sym));
+  if (f.project) list = list.filter(x => x.project === f.project);
+  if (f.sev) list = list.filter(x => x.sev >= f.sev);
+  if (f.q) list = list.filter(x => x.name.includes(f.q) || x.id.startsWith(f.q));
+  list.sort((a, b) => b.sev - a.sev || (b.issues[0]?.v ?? 0) - (a.issues[0]?.v ?? 0));
+  const total = list.length; list = list.slice(0, 25);
+
+  const act = [];
+  if (f.sym) act.push(SYM.find(s => s.k === f.sym).t);
+  if (f.state) act.push('state ' + f.state.replace('!', ' not running'));
+  document.getElementById('f-active').innerHTML = act.length ? `Filtered by <strong>${act.join(', ')}</strong> | <a href="#" id="clear">clear</a>` : '';
+
+  document.getElementById('rows').innerHTML = list.length ? list.map((x, i) => {
+    const isOpen = open.has(x.id);
+    return `<tr class="row-main ${x.sev === 3 ? 'danger' : x.sev === 2 ? 'warning' : ''}" data-id="${x.id}">
+      <td class="caret-cell"><i class="fa fa-caret-${isOpen ? 'down' : 'right'}"></i></td>
+      <td>${x.sev ? badge(x.sev) : '<span class="label label-success"><i class="fa fa-check-circle"></i> OK</span>'}</td>
+      <td><a href="#" title="Open in Admin → Instances" onclick="event.stopPropagation()"><strong>${x.name}</strong></a><br><small class="text-muted">${x.id.slice(0, 8)}…</small></td>
+      <td>${x.project}</td><td>${novaDown ? '<span class="text-muted">n/a</span>' : x.host}</td>
+      <td>${novaDown ? '<span class="text-muted">n/a</span>' : stateLabel(x.state)}${x.task ? `<br><small class="text-muted">task: ${x.task.name}</small>` : ''}</td>
+      <td>${x.issues.map(i => `<span class="issue issue-${i.sev === 3 ? 'crit' : i.sev === 2 ? 'warn' : 'info'}">${i.txt}</span>`).join('') || '<span class="text-muted">—</span>'}</td>
+      <td>${x.issues[0]?.v != null ? `<canvas class="spark" width="110" height="28" id="sp-${i}"></canvas>` : '<span class="text-muted">—</span>'}</td>
+      <td class="text-right">${ago(x.last)}</td></tr>` +
+      (isOpen ? `<tr class="detail"><td></td><td colspan="8">${detail(x, i)}</td></tr>` : '');
+  }).join('') : `<tr><td colspan="9" class="text-center text-muted" style="padding:20px"><i class="fa fa-check-circle text-success"></i> No instances match these filters.</td></tr>`;
+
+  list.forEach((x, i) => {
+    if (x.issues[0]?.v != null) charts.push(spark(document.getElementById('sp-' + i), x.issues[0]));
+    if (open.has(x.id) && x.m) ['cpu', 'mem', 'disk', 'net'].forEach(k => charts.push(mini(document.getElementById(`mc-${i}-${k}`), k, x)));
+  });
+
+  document.getElementById('footer').innerHTML = `<i class="fa fa-info-circle"></i> ${f.state ? 'All instances in this state' : 'Instances with at least one issue'}, worst first.
+    Showing ${list.length} of ${total}.${total > 25 ? ' Narrow down with the filters above to see the rest.' : ''}
+    Click a row for per-metric trends.`;
+}
+
+function detail(x, i) {
+  const links = `<a href="#"><i class="fa fa-external-link"></i> Instance details</a> | <a href="#"><i class="fa fa-server"></i> Host ${x.host} in Compute Host Health</a> | <a href="#"><i class="fa fa-file-text-o"></i> Console log</a>`;
+  if (!x.m) {
+    const why = x.state === 'ERROR' ? 'Nova reports ERROR. Check the instance fault in the instance details.'
+      : x.state === 'ACTIVE!' ? 'Nova thinks the instance is active, but the hypervisor reports it powered off. Nova will usually sync this and stop it; if not, check the nova-compute log on the host.'
+      : x.task ? `The instance has been in task <code>${x.task.name}</code> for ${x.task.mins} min.`
+      : x.state === 'ACTIVE' ? 'The instance is running but Ceilometer has not reported samples for it. Check the ceilometer-polling (compute agent) on the host.'
+      : 'Stopped instances produce no metrics.';
+    return `<p style="margin:6px 0">${why}</p><p class="help-block-sm">${links}</p>`;
+  }
+  const box = (k, t) => `<div class="col-md-3"><strong class="help-block-sm" style="color:#333">${t}</strong><div class="mini-chart"><canvas id="mc-${i}-${k}"></canvas></div></div>`;
+  return `<div class="row">${box('cpu', 'CPU wait (% of vCPU time)')}${box('mem', 'Swap in + out (MB/s)')}${box('disk', 'Disk latency per request (ms)')}${box('net', 'Dropped + error packets/s')}</div>
+    <p class="help-block-sm" style="margin:6px 0 0">${x.vcpus} vCPU | dashed lines are the warning and critical thresholds | ${links}</p>`;
+}
+
+const RANGE_N = { '1h': 12, '6h': 72, '24h': 96, '7d': 84 };
+let range = '6h';
+function series(end, n, base) { const out = []; let v = base; for (let k = 0; k < n; k++) { v = Math.max(0, v + (end - v) / (n - k) + (Math.random() - .5) * (end + 1) * .25); out.push(+v.toFixed(1)); } out[n - 1] = end; return out; }
+function spark(el, iss) {
+  return new Chart(el, { type: 'line', data: { labels: Array(36).fill(''), datasets: [{ data: series(iss.v, 36, iss.v * .2),
+    borderWidth: 1.5, pointRadius: 0, tension: .3, fill: false, borderColor: iss.sev === 3 ? '#d9534f' : '#f0ad4e' }] },
+    options: { responsive: false, animation: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false, min: 0 } } } });
+}
+function mini(el, k, x) {
+  const n = RANGE_N[range], m = x.m;
+  const cfg = { cpu: [m.cpu, T.cpuW, T.cpuC, '%'], mem: [m.swap, null, T.swapC, ' MB/s'], disk: [m.lat, T.latW, T.latC, ' ms'], net: [m.net, null, T.netC, ' pkt/s'] }[k];
+  const labels = Array.from({ length: n }, (_, j) => { const d = new Date(Date.now() - (n - 1 - j) * ({ '1h': 5, '6h': 5, '24h': 15, '7d': 120 }[range]) * 60000);
+    return range === '7d' ? `${d.getMonth() + 1}/${d.getDate()}` : d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0'); });
+  const thr = (v, c, l) => ({ label: l, data: Array(n).fill(v), borderColor: c, borderDash: [5, 4], borderWidth: 1, pointRadius: 0, fill: false });
+  const ds = [{ label: 'Value', data: series(cfg[0], n, cfg[0] * .3), borderColor: '#337ab7', backgroundColor: 'rgba(51,122,183,.12)', fill: 'origin', borderWidth: 2, pointRadius: 0, tension: .25 }];
+  if (cfg[1] != null) ds.push(thr(cfg[1], '#f0ad4e', 'Warning')); ds.push(thr(cfg[2], '#d9534f', 'Critical'));
+  return new Chart(el, { type: 'line', data: { labels, datasets: ds }, options: { maintainAspectRatio: false, animation: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y}${cfg[3]}` } } },
+    scales: { y: { beginAtZero: true, ticks: { maxTicksLimit: 4 } }, x: { ticks: { maxTicksLimit: 4 } } } } });
+}
+
+function load(n, mode) {
+  novaDown = mode === 'partial';
+  all = gen(n, mode === 'healthy');
+  if (novaDown) all = all.filter(x => x.m);
+  all.forEach(evaluate);
+  if (mode === 'error') all.forEach(x => { x.m = null; evaluate(x); x.issues = x.issues.filter(i => i.k === 'state'); x.sev = x.issues[0]?.sev ?? 0; });
+  document.getElementById('state-error').style.display = mode === 'error' ? '' : 'none';
+  document.getElementById('state-partial').style.display = novaDown ? '' : 'none';
+  const nothing = !all.some(x => x.sev > 0) && mode !== 'error';
+  document.getElementById('state-healthy').style.display = nothing && n > 1 ? '' : 'none';
+  document.getElementById('healthy-n').textContent = all.filter(x => x.state === 'ACTIVE').length;
+  f = { sym: null, state: null, q: '', project: '', sev: 0 }; open.clear();
+  render();
+}
+
+let N = 40, MODE = null;
+document.querySelectorAll('[data-n]').forEach(b => b.onclick = () => { N = +b.dataset.n; MODE = null;
+  document.querySelectorAll('.mock-banner .btn').forEach(x => x.classList.toggle('active', x === b)); load(N, MODE); });
+document.querySelectorAll('.mock-banner [data-state]').forEach(b => b.onclick = () => { MODE = b.dataset.state;
+  document.querySelectorAll('.mock-banner [data-state]').forEach(x => x.classList.toggle('active', x === b)); load(N, MODE); });
+document.getElementById('range').onclick = e => { const b = e.target.closest('button'); if (!b) return; range = b.dataset.range;
+  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('active', x === b)); render(); };
+document.addEventListener('click', e => {
+  const sym = e.target.closest('.sym'); if (sym && !sym.disabled) { f.sym = f.sym === sym.dataset.sym ? null : sym.dataset.sym; f.state = null; return render(); }
+  const st = e.target.closest('#state-bar [data-state], #state-legend [data-state]'); if (st) { f.state = f.state === st.dataset.state ? null : st.dataset.state; f.sym = null; return render(); }
+  if (e.target.id === 'clear') { e.preventDefault(); f.sym = null; f.state = null; return render(); }
+  const row = e.target.closest('tr.row-main'); if (row) { const id = row.dataset.id; open.has(id) ? open.delete(id) : open.add(id); render(); }
+});
+document.getElementById('f-search').oninput = e => { f.q = e.target.value.trim(); render(); };
+document.getElementById('f-project').onchange = e => { f.project = e.target.value; render(); };
+document.getElementById('f-sev').onchange = e => { f.sev = +e.target.value; render(); };
+load(N, MODE);
+</script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Admin → Telemetry → Network Health – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="project-common.css">
+</head>
+<body>
+<div class="hz-topbar" id="topbar"></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs" id="sidebar"></div>
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong> | Data:
+      <button class="btn btn-xs btn-default active" data-scn="demo">DevStack cloud (real, 2026-11-18)</button>
+      <button class="btn btn-xs btn-default" data-scn="healthy">Sample: healthy</button>
+      <button class="btn btn-xs btn-default" data-scn="outage">Sample: gateway node down</button>
+      <span class="mock-note">Real: traffic read as admin through Aetos; agents and routers from the Networking API. Agents need the API (admin doc, open question 1): Ceilometer has no Neutron service metric. The samples are invented.</span>
+    </div>
+
+    <div class="page-header"><h1>Network Health</h1></div>
+
+    <div class="row toolbar">
+      <div class="col-sm-8">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Time range" id="range">
+          <button class="btn btn-default" data-range="6">6h</button>
+          <button class="btn btn-default active" data-range="24">24h</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px">Range for the traffic chart. Problems use the last 15 minutes.</span>
+      </div>
+      <div class="col-sm-4 text-right refresh-info"><i class="fa fa-refresh"></i> Auto-refresh every 30s</div>
+    </div>
+
+    <div id="verdict"></div>
+    <div class="row" id="cards"></div>
+
+    <div class="row">
+      <div class="col-md-6"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-cogs"></i> Network agents <span class="src">Networking API</span></h3></div>
+        <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+          <thead><tr><th>Agent</th><th>Host</th><th>Alive</th><th>Admin state</th><th class="text-right">Last heartbeat</th></tr></thead><tbody id="agents"></tbody></table></div>
+      </div></div>
+      <div class="col-md-6"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-exchange"></i> Cloud traffic</h3></div>
+        <div class="panel-body"><div id="t-legend"></div><div class="chart-box sm"><canvas id="traffic"></canvas></div>
+          <p class="help-block-sm" style="margin:6px 0 0" id="t-note"></p></div>
+      </div></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-arrows-alt"></i> Routers, all projects <span class="bounded">problems first, max 25 rows</span></h3></div>
+      <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+        <thead><tr><th>Router</th><th>Project</th><th>Status in Neutron</th><th>Gateway host</th><th>Instances behind</th><th>Quiet</th><th>Traffic now vs usual</th></tr></thead><tbody id="routers"></tbody></table></div>
+      <div class="panel-footer help-block-sm" id="r-foot"></div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-6"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-random"></i> Drops and errors by project <span class="bounded">top 10</span></h3></div>
+        <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+          <thead><tr><th>Project</th><th class="text-right">Interfaces</th><th class="text-right">With drops/errors</th><th class="text-right">Packets lost/s</th></tr></thead><tbody id="drops"></tbody></table></div>
+      </div></div>
+      <div class="col-md-6"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-globe"></i> Floating IPs</h3></div>
+        <div class="panel-body" id="fips"></div>
+      </div></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('how').classList.toggle('hidden')">
+        <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+      <div class="panel-body hidden" id="how">
+        <table class="thr-table help-block-sm" style="color:#333">
+          <tr><th>Item</th><th>Source / rule</th></tr>
+          <tr><td>Agents</td><td>Networking API (<code>GET /v2.0/agents</code>), admin only. Not alive → critical. Ceilometer has no Neutron service metric (admin doc, design note 2).</td></tr>
+          <tr><td>Traffic</td><td><code>sum(rate(ceilometer_network_{incoming,outgoing}_bytes[5m]))</code></td></tr>
+          <tr><td>Quiet router</td><td>Interfaces behind the router (Neutron ports, matched to metrics by tap name) whose inbound packets fell below 10% of the same time yesterday. Only judged when usual traffic is at least 0.5 packets/s per interface.</td></tr>
+          <tr><td>Platform verdict</td><td>Routers of <strong>two or more projects</strong> going quiet at the same time, or an agent down, → probably the platform. One project only → probably that project's setup.</td></tr>
+          <tr><td>Drops / errors</td><td><code>rate(ceilometer_network_*_packets_{drop,error}[5m])</code>, each metric named explicitly (Aetos rejects <code>__name__</code> regex selectors).</td></tr>
+          <tr><td>Floating IPs</td><td>Networking API. The <code>ip.floating</code> meter would add history, but produces nothing while no floating IPs exist.</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="project-demo-data.js"></script>
+<script src="project-common.js"></script>
+<script src="admin-demo-data.js"></script>
+<script src="admin-common.js"></script>
+<script>
+adminChrome('net');
+let scn, hours = 24, M;
+const MIN_PPS = 0.5;
+
+function modelDemo() {
+  const ifs = ADM.ifaces.map(f => ({ ...f, out: ADM.if_out[f.inst], pps: ADM.if_in_pps[f.inst], usual: ADM.if_in_pps[f.inst], drops: ADM.if_drop_err[f.inst] || 0 }));
+  return { real: true, agents: ADM.agents.map(a => ({ ...a, beat: '<span class="text-muted">not captured</span>' })), ifs,
+    routers: ADM.routers.map(r => ({ ...r, gw: 'devstack-grian' })), fips: { total: 0, down: 0, unassoc: 0 },
+    tin: admValues(ADM.net_in_24h), tout: admValues(ADM.net_out_24h), labels: admLabels(ADM.net_in_24h) };
+}
+function modelSample(kind) {
+  const agents = [
+    ...['net-01', 'net-02', 'net-03'].map(h => ({ type: 'OVN Controller Gateway agent', host: h, alive: !(kind === 'outage' && h === 'net-02'), up: true, beat: kind === 'outage' && h === 'net-02' ? '14 min ago' : `${Math.floor(rnd() * 40) + 5} s ago` })),
+    ...Array.from({ length: 6 }, (_, i) => ({ type: 'OVN Controller agent', host: `compute-0${String(i + 1).padStart(2, '0')}`, alive: true, up: true, beat: `${Math.floor(rnd() * 40) + 5} s ago` })),
+    { type: 'OVN Metadata agent', host: 'compute-001 … 040 (40)', alive: true, up: true, beat: '< 1 min' }];
+  const gws = ['net-01', 'net-02', 'net-03'];
+  const routers = SAMPLE_PROJECTS.slice(0, 10).map((p, i) => {
+    const n = 2 + Math.floor(rnd() * 10), gw = gws[i % 3], cut = kind === 'outage' && gw === 'net-02';
+    return { name: `${p.split('-')[0]}-router`, project: p, status: 'ACTIVE', gw, n, quiet: cut ? n : 0, pct: cut ? 1 : 85 + Math.floor(rnd() * 30) };
+  });
+  const ifsByProj = SAMPLE_PROJECTS.map(p => ({ project: p, n: 4 + Math.floor(rnd() * 40), bad: p === 'data-lake' ? 2 : 0, lost: p === 'data-lake' ? 3.4 : 0 }));
+  const n = hours * 4, cut = Math.floor(n * .82);
+  const tin = noisy(1.6e8, n, .08).map((v, k) => kind === 'outage' && k >= cut ? v * .68 : v), tout = noisy(1.1e8, n, .08).map((v, k) => kind === 'outage' && k >= cut ? v * .7 : v);
+  return { real: false, agents, routers, ifsByProj, fips: { total: 64, down: kind === 'outage' ? 21 : 5, unassoc: 5 }, tin, tout,
+    labels: Array.from({ length: n }, (_, k) => clockLabel(Date.now() / 1000 - (n - 1 - k) * 900)), cutLabel: kind === 'outage' ? clockLabel(Date.now() / 1000 - (n - 1 - cut) * 900) : null };
+}
+
+function render() {
+  resetCharts();
+  const m = M, deadAgents = m.agents.filter(a => !a.alive);
+  // Routers: real data derives quiet/usual from the interfaces behind the router.
+  const routers = m.real ? m.routers.map(r => { const ifs = m.ifs.filter(f => r.instances.includes(f.inst));
+      return { ...r, n: ifs.length, judge: ifs.every(f => f.usual >= MIN_PPS), quiet: 0, pct: null }; }) : m.routers.map(r => ({ ...r, judge: true }));
+  const quietRouters = routers.filter(r => r.judge && r.n && r.quiet === r.n), quietProjects = new Set(quietRouters.map(r => r.project));
+  const byProj = m.real ? Object.values(m.ifs.reduce((a, f) => { (a[f.project] = a[f.project] || { project: f.project, n: 0, bad: 0, lost: 0 }); a[f.project].n++; if (f.drops > 0) { a[f.project].bad++; a[f.project].lost += f.drops; } return a; }, {})) : m.ifsByProj;
+  const badIfs = byProj.reduce((a, p) => a + p.bad, 0), allIfs = byProj.reduce((a, p) => a + p.n, 0);
+
+  // Verdict
+  let v;
+  if (deadAgents.length && quietProjects.size >= 2) {
+    const gw = deadAgents[0].host;
+    v = ['crit', 'exclamation-circle', `Platform problem: gateway ${gw} is down and ${quietRouters.length} routers in ${quietProjects.size} projects lost traffic`,
+      `The <strong>${deadAgents[0].type}</strong> on <strong>${gw}</strong> stopped reporting ${deadAgents[0].beat}. Every router whose gateway is on ${gw} went quiet at about <strong>${m.cutLabel}</strong>, while routers on other gateways are normal.
+       <br><strong>What to do:</strong> check <code>ovn-controller</code> on ${gw}. Projects affected: ${[...quietProjects].join(', ')}. Expect tickets from them; their own Network page tells them it is a cloud-side problem.`];
+  } else if (deadAgents.length) v = ['warn', 'exclamation-triangle', `${deadAgents.length} network agent${deadAgents.length > 1 ? 's' : ''} not alive`, deadAgents.map(a => `${a.type} on ${a.host}`).join(', ')];
+  else if (quietProjects.size === 1) v = ['warn', 'exclamation-triangle', `Routers of one project went quiet`, `Only ${[...quietProjects][0]} is affected, so the platform is probably fine; check that project's routers and security groups.`];
+  else if (badIfs) v = ['warn', 'exclamation-triangle', `Packet drops or errors on ${badIfs} interface${badIfs > 1 ? 's' : ''}`, `See "Drops and errors by project" below.`];
+  else v = ['ok', 'check-circle', 'No network problems detected', `${m.agents.length} agents alive, no router gone quiet, no drops or errors.` +
+    (m.real ? ' <br><i class="fa fa-info-circle text-muted"></i> Instance traffic on this cloud is too low (about 0.06 packets/s per interface) to detect quiet routers; agents, drops and errors are still checked.' : '')];
+  document.getElementById('verdict').innerHTML = `<div class="verdict verdict-${v[0]}"><h4><i class="fa fa-${v[1]} text-${v[0] === 'ok' ? 'success' : v[0] === 'warn' ? 'warning' : 'danger'}"></i> ${v[2]}</h4><div>${v[3]}</div></div>`;
+
+  const tinNow = last(m.tin), toutNow = last(m.tout);
+  document.getElementById('cards').innerHTML =
+    card(deadAgents.length ? 'panel-red' : 'panel-green', 'cogs', `${m.agents.length - deadAgents.length}<small> / ${m.agents.length}</small>`, 'Network agents alive', deadAgents.length ? `${deadAgents[0].host} down` : 'all alive') +
+    card(quietRouters.length ? (quietProjects.size >= 2 ? 'panel-red' : 'panel-yellow') : 'panel-green', 'arrows-alt', quietRouters.length, 'Routers gone quiet', quietRouters.length ? `in ${quietProjects.size} project${quietProjects.size > 1 ? 's' : ''}` : m.real ? 'traffic too low to judge' : 'all normal') +
+    card(badIfs ? 'panel-yellow' : 'panel-green', 'random', `${badIfs}<small> / ${allIfs}</small>`, 'Interfaces dropping packets', badIfs ? 'drops or errors, last 5 min' : 'no drops or errors') +
+    card('panel-primary', 'exchange', fmtRate(tinNow), 'Cloud traffic in', `${fmtRate(toutNow)} out`);
+
+  document.getElementById('agents').innerHTML = [...m.agents].sort((a, b) => a.alive - b.alive).map(a => `<tr class="${a.alive ? '' : 'danger'}"><td>${a.type}</td><td>${a.host}</td>
+    <td>${a.alive ? '<span class="tag tag-ok"><i class="fa fa-check"></i> alive</span>' : '<span class="tag tag-crit"><i class="fa fa-times"></i> not alive</span>'}</td><td>${a.up ? 'UP' : 'DOWN'}</td><td class="text-right">${a.beat}</td></tr>`).join('');
+
+  const take = hours === 6 ? Math.ceil(m.labels.length / 4) : m.labels.length;
+  document.getElementById('t-legend').innerHTML = legend([['Inbound', C.blue], ['Outbound', C.mag]]);
+  lineChart(document.getElementById('traffic'), m.labels.slice(-take), [{ label: 'Inbound', data: m.tin.slice(-take), borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' },
+    { label: 'Outbound', data: m.tout.slice(-take), borderColor: C.mag }], { tickFmt: fmtRate });
+  document.getElementById('t-note').innerHTML = m.real ? 'All instances, all projects. Only a few bytes per second: each spike is a handful of packets, because the test instances barely use the network.' : m.cutLabel ? `Inbound fell by about a third at ${m.cutLabel}, when net-02 stopped.` : 'All instances, all projects.';
+
+  document.getElementById('routers').innerHTML = [...routers].sort((a, b) => b.quiet - a.quiet).slice(0, 25).map(r => {
+    const allQ = r.judge && r.n && r.quiet === r.n;
+    return `<tr class="${allQ ? 'danger' : ''}"><td><strong>${r.name}</strong></td><td>${r.project}</td><td>${statusText(r.status)}</td><td>${r.gw}${deadAgents.some(a => a.host === r.gw) ? ' <span class="tag tag-crit">down</span>' : ''}</td>
+      <td>${r.n}</td><td>${!r.judge ? '<span class="text-muted">too little traffic</span>' : r.quiet ? `<span class="text-danger"><strong>${r.quiet} of ${r.n}</strong></span>` : '0'}</td>
+      <td>${r.pct == null ? '<span class="text-muted">—</span>' : `<span class="ratio ${r.pct < 10 ? 'crit' : r.pct < 50 ? 'warn' : ''}" style="width:70px"><span style="width:${Math.min(100, r.pct)}%"></span></span>${r.pct}%`}</td></tr>`;
+  }).join('');
+  document.getElementById('r-foot').innerHTML = `<i class="fa fa-info-circle"></i> Neutron reports a router ACTIVE even when its gateway node is down; the "Quiet" column is what shows the data plane problem.` +
+    ' <strong>Gateway host</strong> (where the router\'s external gateway runs) is not verified: with ML2/OVN it may not be exposed by the router API, so how Grian gets it is still open.' + (m.real ? ' Single node here.' : '');
+
+  document.getElementById('drops').innerHTML = [...byProj].sort((a, b) => b.lost - a.lost || b.n - a.n).slice(0, 10).map(p => `<tr class="${p.bad ? 'warning' : ''}"><td>${p.project}</td><td class="text-right">${p.n}</td>
+    <td class="text-right">${p.bad}</td><td class="text-right">${p.lost ? p.lost.toFixed(1) : '0'}</td></tr>`).join('');
+
+  const f = m.fips;
+  document.getElementById('fips').innerHTML = f.total ? `${quotaRow('Floating IPs', [{ v: f.total - f.down, color: C.blue, label: 'ACTIVE' }, { v: f.unassoc, color: C.grey, label: 'Not associated (DOWN by design)' }, { v: f.down - f.unassoc, color: C.crit, label: 'Associated but DOWN' }], f.total, v => v, '')}
+     <div class="q-legend" style="margin-left:150px"><span><span class="sw" style="background:${C.blue}"></span>Active</span><span><span class="sw" style="background:${C.grey}"></span>Not associated</span><span><span class="sw" style="background:${C.crit}"></span>Associated but DOWN</span></div>
+     <p class="help-block-sm" style="margin-top:8px">${f.down - f.unassoc ? `${f.down - f.unassoc} associated floating IPs are DOWN: their router's gateway is on the failed node.` : 'Associated floating IPs are all ACTIVE.'}</p>`
+    : '<div class="empty-state" style="padding:10px"><i class="fa fa-globe" style="font-size:2em"></i>No floating IPs in the cloud. The <code>ip.floating</code> meter stays empty until there are some.</div>';
+}
+scenarios(k => { scn = k; M = k === 'demo' ? modelDemo() : modelSample(k); render(); });
+document.getElementById('range').onclick = e => { const b = e.target.closest('button'); if (!b) return; hours = +b.dataset.range;
+  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('active', x === b)); if (scn !== 'demo') M = modelSample(scn); render(); };
+</script>
+</body>
+</html>

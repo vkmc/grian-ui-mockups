@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Admin – Telemetry – Storage Health (was Volume Metrics) – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="project-common.css">
+<style>
+  /* Change markers against the current Volume Metrics panel */
+  body.hl .is-new, body.hl .is-fix { outline: 2px dashed #337ab7; outline-offset: 3px; position: relative; }
+  body.hl .is-fix { outline-color: #8a6d3b; }
+  body.hl .is-new::before, body.hl .is-fix::before { position: absolute; top: -10px; right: 8px; color: #fff; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px; z-index: 2; }
+  body.hl .is-new::before { content: "NEW"; background: #337ab7; }
+  body.hl .is-fix::before { content: "CHANGED"; background: #8a6d3b; }
+  .marker-legend { display: none; }
+  body.hl .marker-legend { display: inline; }
+  .strip { display: flex; gap: 1px; height: 14px; }
+  .strip span { flex: 1; border-radius: 1px; }
+  .twobar { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+</style>
+</head>
+<body class="hl">
+<div class="hz-topbar" id="topbar"></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs" id="sidebar"></div>
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong> | Data:
+      <button class="btn btn-xs btn-default active" data-scn="demo">DevStack cloud (real, 2026-11-18)</button>
+      <button class="btn btn-xs btn-default" data-scn="sample">Sample: 3 backends, problems</button>
+      <button class="btn btn-xs btn-default" data-scn="error">Sample: metrics unavailable</button>
+      | <label style="font-weight:normal;margin:0"><input type="checkbox" id="hl" checked> Mark changes against the current Volume Metrics panel</label>
+      <span class="marker-legend help-block-sm" style="margin-left:6px"><span class="tag tag-blue">NEW</span> new section <span class="tag tag-warn">CHANGED</span> existing section, reworked</span>
+      <span class="mock-note">Real values read as admin through Aetos and the Block Storage API. The samples are invented.</span>
+    </div>
+
+    <div class="page-header"><h1>Storage Health</h1></div>
+
+    <div class="row toolbar">
+      <div class="col-sm-8">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Time range" id="range">
+          <button class="btn btn-default" data-range="1">24h</button>
+          <button class="btn btn-default active" data-range="7">7d</button>
+          <button class="btn btn-default" data-range="14">14d</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px">Range for the capacity chart. Metrics are kept for 15 days in this cloud.</span>
+      </div>
+      <div class="col-sm-4 text-right refresh-info"><i class="fa fa-refresh"></i> Auto-refresh every 60s (was 10s) | <span id="updated">just now</span></div>
+    </div>
+
+    <div id="err"></div>
+    <div id="verdict" class="is-new"></div>
+    <div class="is-fix" style="padding:10px 15px 0;margin-bottom:22px"><div class="row" id="cards" style="margin-bottom:-10px"></div></div>
+
+    <!-- NEW: replaces the "Volume and Snapshot Distribution" chart -->
+    <div class="panel panel-default is-new">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-bell"></i> Volumes and snapshots needing attention <span class="src">Block Storage API</span><span class="bounded">max 25 rows</span></h3></div>
+      <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+        <thead><tr><th>Severity</th><th>Volume / snapshot</th><th>Project</th><th>Status</th><th class="text-right">For</th><th class="text-right">Size</th><th>Backend</th><th>What to do</th></tr></thead>
+        <tbody id="attn"></tbody></table></div>
+      <div class="panel-footer help-block-sm" id="attn-foot"></div>
+    </div>
+
+    <!-- NEW: history -->
+    <div class="panel panel-default is-new">
+      <div class="panel-heading"><h3 class="panel-title" style="display:inline-block"><i class="fa fa-area-chart"></i> Capacity over time</h3>
+        <div class="btn-group btn-group-xs pull-right" id="view">
+          <button class="btn btn-default active" data-view="cloud">Whole cloud</button><button class="btn btn-default" data-view="pools">Fullest pools</button>
+        </div></div>
+      <div class="panel-body"><div id="c-legend"></div><div class="chart-box"><canvas id="cap"></canvas></div>
+        <p class="help-block-sm" id="c-note" style="margin:8px 0 0"></p></div>
+    </div>
+
+    <!-- CHANGED: merges Storage Pools, Capacity Forecast and Detailed Pool Information -->
+    <div class="panel panel-default is-fix">
+      <div class="panel-heading"><h3 class="panel-title" style="display:inline-block"><i class="fa fa-server"></i> Pools <span class="bounded">top 10</span></h3>
+        <div class="btn-group btn-group-xs pull-right" id="sort">
+          <button class="btn btn-default active" data-sort="soon">Soonest full</button><button class="btn btn-default" data-sort="full">Fullest</button><button class="btn btn-default" data-sort="stale">Stale first</button>
+        </div></div>
+      <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+        <thead><tr><th>Pool</th><th>Physical: allocated ÷ total</th><th>Virtual: provisioned ÷ limit</th><th class="text-right">Free (GiB)</th><th>Forecast</th><th class="text-right">Last report</th><th>Status</th></tr></thead>
+        <tbody id="pools"></tbody></table></div>
+      <div class="panel-body" style="border-top:1px solid #ddd">
+        <form class="form-inline" id="lookup-form">
+          <input type="search" class="form-control input-sm" id="lookup" list="pool-names" placeholder="Pool name, e.g. ceph-hdd@rbd#hdd-07" style="width:280px">
+          <datalist id="pool-names"></datalist>
+          <button class="btn btn-primary btn-sm" type="submit"><i class="fa fa-search"></i> Show</button>
+          <span class="help-block-sm" style="margin-left:8px">Any pool, also outside the top 10.</span>
+        </form>
+        <div id="lookup-result"></div>
+      </div>
+      <div class="panel-footer help-block-sm" id="pools-foot"></div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-7"><div class="panel panel-default is-new">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-heartbeat"></i> Cinder services <span class="src">ceilometer_volume_service_health</span></h3></div>
+        <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+          <thead><tr><th>Service</th><th>Host / backend</th><th>Status</th><th style="width:38%">Last 24 h</th><th class="text-right">Up</th></tr></thead><tbody id="svcs"></tbody></table></div>
+      </div></div>
+      <div class="col-md-5"><div class="panel panel-default is-new">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-database"></i> Backends <span class="bounded">sum of their pools</span></h3></div>
+        <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+          <thead><tr><th>Backend</th><th class="text-right">Pools</th><th class="text-right">Total (GiB)</th><th>Over-subscription</th></tr></thead><tbody id="backends"></tbody></table></div>
+      </div></div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-7"><div class="panel panel-default is-new">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-users"></i> Usage by project <span class="bounded">top 10</span></h3></div>
+        <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+          <thead><tr><th>Project</th><th class="text-right">Volumes</th><th class="text-right">Volume GiB</th><th class="text-right">Snapshots</th><th class="text-right">Snapshot GiB</th><th>Share of allocated</th></tr></thead><tbody id="byproj"></tbody></table></div>
+        <div class="panel-footer help-block-sm">Click a project to open its volumes (Admin, Volume, Volumes, filtered by project). Names from Keystone.</div>
+      </div></div>
+      <div class="col-md-5"><div class="panel panel-default is-new">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-clone"></i> Images and backups</h3></div>
+        <div class="panel-body" id="images"></div>
+      </div></div>
+    </div>
+
+    <div class="panel panel-default is-new">
+      <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('how').classList.toggle('hidden')">
+        <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+      <div class="panel-body hidden" id="how">
+        <table class="thr-table help-block-sm" style="color:#333">
+          <tr><th>Item</th><th>Source / query / rule</th></tr>
+          <tr><td>Pool metrics</td><td>One query per metric for all pools: <code>last_over_time(ceilometer_volume_provider_pool_capacity_{total,allocated,provisioned,free,virtual_free}[10m])</code>. The current panel runs 3 queries per pool and reads only the current instant.</td></tr>
+          <tr><td>Physical use</td><td>allocated ÷ total. Warning ≥ 75%, critical ≥ 90%.</td></tr>
+          <tr><td>Virtual use</td><td>provisioned ÷ limit, with limit = provisioned + virtual free (total × <code>max_over_subscription_ratio</code>). Same thresholds. On thin pools this is usually what runs out first.</td></tr>
+          <tr><td>Forecast</td><td><code>predict_linear(…[7d], …)</code> on <strong>both</strong> free and virtual free; the page shows whichever reaches zero first. Critical ≤ 14 days, warning ≤ 30 days. Needs 7 days of history. The current panel predicts free only, which on thin pools stays at total and never warns.</td></tr>
+          <tr><td>Stale pool</td><td>No sample in the last 10 min but one in the last 24 h. Its values are frozen at the last report.</td></tr>
+          <tr><td>Needing attention</td><td>Block Storage API, all projects. Critical: <code>error</code>, <code>error_deleting</code>, <code>error_restoring</code>, <code>error_extending</code>. Warning: <code>creating</code>, <code>attaching</code>, <code>detaching</code>, <code>deleting</code> for more than 30 min. Info (clean-up): unattached for 30 days or more, snapshots older than 90 days with a newer one of the same volume.</td></tr>
+          <tr><td>Services, backends, projects, images</td><td><code>ceilometer_volume_service_health</code>; pools summed per backend; <code>sum by (project)</code> of volume and snapshot sizes; <code>ceilometer_image_size</code>, <code>image_download</code>, <code>volume_backup_size</code>.</td></tr>
+          <tr><td>Refresh and errors</td><td>Every 60 s through the shared cache (the current panel refreshes cards every 10 s). If Aetos fails, the last good data is shown with its age instead of the raw exception text.</td></tr>
+        </table>
+        <p class="help-block-sm" style="margin-top:8px">Thresholds can be overridden in <code>local_settings</code> with <code>GRIAN_PLUGIN['storage_thresholds']</code>. The panel keeps its URL (<code>/admin/volume_metrics/</code>) so existing links and bookmarks still work.</p>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="project-demo-data.js"></script>
+<script src="project-common.js"></script>
+<script src="admin-demo-data.js"></script>
+<script src="admin-common.js"></script>
+<script>
+adminChrome('vol');
+let scn, days = 7, view = 'cloud', sortBy = 'soon', M;
+const NOW = Date.parse('2026-11-18T20:17Z') / 1000;
+
+function modelDemo() {
+  const p = ADM.pool;
+  return { real: true, historyDays: 1.25,
+    pools: [{ name: ADM.pool_name, total: p.total, allocated: p.allocated, provisioned: p.provisioned, free: p.free, vfree: p.virtual_free, gAlloc: 0, gProv: 0, last: null }],   // last: null = reported within the last 5 min (the instant query returned it)
+    services: Object.entries(ADM.svc_health).map(([r, v]) => ({ svc: r.split('@')[0], host: r.split('@').slice(1).join('@'), up: v === 1, h24: ADM.svc_health_24h[r] })),
+    attention: [], unattachedBelow: [{ name: 'grian-test-vol', days: 1.3 }],
+    volumes: ADM.volumes, snapshots: ADM.snapshots, images: ADM.images, downloads: 0, backups: null };
+}
+function modelSample() {
+  const pools = [
+    { name: 'ceph-ssd@rbd#ssd-a', total: 40960, allocated: 31130, provisioned: 52000, free: 9830, vfree: 9440, gAlloc: 380, gProv: 500, last: 40 },
+    { name: 'ceph-ssd@rbd#ssd-b', total: 40960, allocated: 25860, provisioned: 41000, free: 15100, vfree: 20440, gAlloc: 120, gProv: 150, last: 35 },
+    { name: 'netapp@nfs#vol01', total: 20480, allocated: 18580, provisioned: 18900, free: 1900, vfree: 1600, gAlloc: 210, gProv: 215, last: 17 * 3600 + 900 },
+  ];
+  for (let i = 1; i <= 11; i++) { const t = 18432, a = Math.round(t * (.25 + rnd() * .4)); pools.push({ name: `ceph-hdd@rbd#hdd-${String(i).padStart(2, '0')}`, total: t, allocated: a, provisioned: Math.round(a * 1.05), free: t - a, vfree: t * 3 - Math.round(a * 1.05), gAlloc: rnd() * 40, gProv: rnd() * 40, last: 20 + Math.floor(rnd() * 60) }); }
+  const ok = Array(96).fill(1), down = Array(96).fill(1).map((v, i) => i >= 26 ? 0 : 1);
+  const services = [...['ctl-01', 'ctl-02', 'ctl-03'].map(h => ({ svc: 'cinder-scheduler', host: h, up: true, h24: ok })),
+    { svc: 'cinder-volume', host: 'ctl-01@ceph-ssd', up: true, h24: ok }, { svc: 'cinder-volume', host: 'ctl-01@ceph-hdd', up: true, h24: ok },
+    { svc: 'cinder-volume', host: 'ctl-02@netapp', up: false, h24: down, since: '03:05' }];
+  const attention = [
+    { sev: 3, name: 'pg-data-07', kind: 'volume', project: 'data-lake', status: 'error', for: '2 h', gb: 500, backend: 'netapp@nfs', todo: 'Creation failed while cinder-volume on ctl-02@netapp was down. Delete it; the user can retry once the service is back.' },
+    { sev: 3, name: 'ci-cache-112', kind: 'volume', project: 'ci-runners', status: 'error_deleting', for: '3 d', gb: 50, backend: 'ceph-hdd@rbd', todo: 'Check the cinder-volume log, then <code>cinder reset-state</code> and delete again.' },
+    { sev: 2, name: 'ml-ckpt-31', kind: 'volume', project: 'ml-training', status: 'creating', for: '47 min', gb: 2000, backend: 'netapp@nfs', todo: 'Stuck: its backend service is down. Will fail or finish when ctl-02@netapp returns.' },
+    { sev: 1, name: 'erp-archive-2025', kind: 'volume', project: 'erp', status: 'available', for: '64 d', gb: 800, backend: 'ceph-hdd@rbd', todo: 'Unattached for 64 days. Ask the project whether it is still needed.' },
+    { sev: 1, name: 'staging-db-old', kind: 'volume', project: 'staging', status: 'available', for: '41 d', gb: 200, backend: 'ceph-ssd@rbd', todo: 'Unattached for 41 days, on the fullest backend.' },
+    { sev: 1, name: 'backup-2026-08-01', kind: 'snapshot', project: 'backup', status: 'available', for: '109 d', gb: 1200, backend: 'ceph-hdd@rbd', todo: '109 days old; newer snapshots of the same volume exist.' },
+  ];
+  const volumes = [], snapshots = [];
+  SAMPLE_PROJECTS.forEach((p, i) => { const n = [40, 25, 6, 30, 18, 22, 8, 12, 5, 60, 3, 2][i]; for (let k = 0; k < n; k++) volumes.push({ project: p, gb: [100, 500, 50, 1000, 200, 300, 40, 80, 20, 800, 10, 20][i] * (0.5 + rnd()) });
+    for (let k = 0; k < Math.floor(n / 3); k++) snapshots.push({ project: p, gb: 60 * (0.5 + rnd()) }); });
+  const images = Array.from({ length: 48 }, (_, i) => ({ project: SAMPLE_PROJECTS[i % 12], bytes: (0.3 + rnd() * 6) * 2 ** 30 }));
+  return { real: false, historyDays: 15, pools, services, attention, unattachedBelow: [], volumes, snapshots, images, downloads: 412, backups: { count: 310, gb: 21400 } };
+}
+
+// Per-pool derived values: virtual limit, forecasts, status.
+function derive(p, M) {
+  const limit = p.provisioned + p.vfree, phys = p.allocated / p.total, virt = limit ? p.provisioned / limit : 0;
+  const enough = M.historyDays >= 7, stale = p.last != null && p.last > 600;
+  const dPhys = p.gAlloc > 0 ? Math.round(p.free / p.gAlloc) : null, dVirt = p.gProv > 0 ? Math.round(p.vfree / p.gProv) : null;
+  const cands = [[dPhys, 'physical'], [dVirt, 'virtual']].filter(([d]) => d != null).sort((a, b) => a[0] - b[0]);
+  const fc = enough && cands.length ? cands[0] : null;
+  const worstUse = Math.max(phys, virt);
+  let sev = worstUse >= .9 || (fc && fc[0] <= 14) ? 3 : worstUse >= .75 || (fc && fc[0] <= 30) ? 2 : 0;
+  return { ...p, limit, phys, virt, enough, stale, fc, sev: stale ? Math.max(sev, 2) : sev };
+}
+const useBar = r => `<span class="ratio ${r >= .9 ? 'crit' : r >= .75 ? 'warn' : ''}" style="width:80px"><span style="width:${Math.min(100, r * 100)}%"></span></span>${Math.round(r * 100)}%`;
+const ago = s => s == null ? '&lt; 5 min ago' : s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${(s / 3600).toFixed(1)} h ago`;
+
+function render() {
+  resetCharts();
+  const m = M, err = scn === 'error';
+  const P = m.pools.map(p => derive(p, m)), sum = k => P.reduce((a, p) => a + p[k], 0);
+  const svcDown = m.services.filter(s => !s.up), crit = P.filter(p => p.sev === 3), stale = P.filter(p => p.stale);
+  const attnC = m.attention.filter(a => a.sev === 3).length, attnW = m.attention.filter(a => a.sev === 2).length;
+  document.getElementById('err').innerHTML = err ? `<div class="alert alert-warning is-fix"><i class="fa fa-exclamation-triangle"></i> <strong>Could not reach the metric-storage (Aetos) endpoint.</strong>
+    Showing the last good data, from <strong>4 min ago</strong>. Retrying in 60 s. <small class="text-muted">(The current panel shows the raw exception text and empty values instead.)</small></div>` : '';
+  document.getElementById('updated').textContent = err ? 'last good data 4 min ago' : 'just now';
+
+  // Verdict
+  const soon = P.filter(p => p.fc && !p.stale).sort((a, b) => a.fc[0] - b.fc[0])[0];   // stale pools are covered by the service message
+  let v;
+  if (svcDown.length) v = ['crit', 'exclamation-circle', `${svcDown.map(s => `${s.svc} on ${s.host}`).join(', ')} is down`,
+    `Down since ${svcDown[0].since} UTC. Its pools are stale (values frozen at the last report) and ${attnC + attnW} volume operations failed or are stuck. ${soon ? `Separately, <strong>${soon.name}</strong> fills up in about ${soon.fc[0]} days (${soon.fc[1]} capacity).` : ''}`];
+  else if (crit.length) v = ['crit', 'exclamation-circle', `${crit.length} pool${crit.length > 1 ? 's' : ''} nearly full`, crit.map(p => p.name).join(', ')];
+  else if (attnC) v = ['warn', 'exclamation-triangle', `${attnC} volume${attnC > 1 ? 's' : ''} in an error state`, 'See "Volumes and snapshots needing attention".'];
+  else v = ['ok', 'check-circle', 'Storage is healthy', `All ${m.services.length} Cinder services up, ${P.length} pool${P.length > 1 ? 's' : ''} below 75% (physical and virtual), no volume in an error state.` +
+    (m.real ? ' <br><i class="fa fa-info-circle text-muted"></i> Forecasts need 7 days of history; this cloud has about 1.3 days.' : '')];
+  document.getElementById('verdict').innerHTML = `<div class="verdict verdict-${v[0]}"><h4><i class="fa fa-${v[1]} text-${v[0] === 'ok' ? 'success' : v[0] === 'warn' ? 'warning' : 'danger'}"></i> ${v[2]}</h4><div>${v[3]}</div></div>`;
+
+  // Cards (existing four, with threshold colours and more context)
+  const allocP = sum('allocated') / sum('total'), virtP = sum('provisioned') / sum('limit');
+  document.getElementById('cards').innerHTML =
+    card('panel-primary', 'database', sum('total').toLocaleString(undefined, { maximumFractionDigits: 1 }), 'Total storage (GiB)', `${P.length} pool${P.length > 1 ? 's' : ''}${stale.length ? ` | ${stale.length} stale` : ''}`) +
+    card(levelCls(Math.round(Math.max(allocP, virtP) * 100)), 'pie-chart', sum('allocated').toLocaleString(undefined, { maximumFractionDigits: 1 }), 'Allocated storage (GiB)', `${Math.round(allocP * 100)}% physical | ${Math.round(virtP * 100)}% of the virtual limit`) +
+    card(attnC ? 'panel-red' : attnW ? 'panel-yellow' : 'panel-primary', 'hdd-o', m.volumes.length, 'Volumes', attnC + attnW ? `${attnC + attnW} need attention` : `${Math.round(m.volumes.reduce((a, x) => a + x.gb, 0)).toLocaleString()} GiB`) +
+    card('panel-primary', 'camera', m.snapshots.length, 'Snapshots', `${Math.round(m.snapshots.reduce((a, x) => a + x.gb, 0)).toLocaleString()} GiB`);
+
+  // Needing attention
+  const SEVT = { 3: ['danger', 'Critical'], 2: ['warning', 'Warning'], 1: ['', 'Clean-up'] };
+  document.getElementById('attn').innerHTML = m.attention.length ? m.attention.map(a => `<tr class="${SEVT[a.sev][0]}"><td>${a.sev === 1 ? '<span class="tag tag-info"><i class="fa fa-trash-o"></i> Clean-up</span>' : badge(a.sev)}</td>
+      <td><a class="tbl-link"><strong>${a.name}</strong></a><br><small class="text-muted">${a.kind}</small></td><td>${a.project}</td><td><code>${a.status}</code></td>
+      <td class="text-right">${a.for}</td><td class="text-right">${a.gb.toLocaleString()} GiB</td><td>${a.backend}</td><td class="help-block-sm" style="color:#333;max-width:360px">${a.todo}</td></tr>`).join('')
+    : `<tr><td colspan="8" class="text-center text-muted" style="padding:18px"><i class="fa fa-check-circle text-success"></i> No volume or snapshot in an error or stuck state, and nothing to clean up.</td></tr>`;
+  document.getElementById('attn-foot').innerHTML = `<i class="fa fa-info-circle"></i> Errors first, then stuck operations, then clean-up candidates (unattached 30 days or more, old snapshots).` +
+    (m.unattachedBelow.length ? ` Not listed yet: ${m.unattachedBelow.map(u => `${u.name} (unattached ${u.days} days)`).join(', ')}.` : '') + ' Replaces the "Volume and Snapshot Distribution" chart, which repeated the card counts.';
+
+  // Capacity over time
+  const n = days === 1 ? 96 : days * 24, step = days * 86400 / n;
+  const ts = Array.from({ length: n }, (_, i) => NOW - (n - 1 - i) * step);
+  const labels = ts.map(t => days === 1 ? clockLabel(t) : dayLabel(t));
+  if (err) { document.getElementById('c-legend').innerHTML = ''; document.getElementById('c-note').innerHTML = '<span class="text-muted">Chart unavailable while Aetos cannot be reached.</span>'; }
+  else if (view === 'cloud') {
+    const first = m.real ? Date.parse('2026-11-17T14:30Z') / 1000 : 0;
+    const grow = (now, g) => ts.map(t => t < first ? null : +(now - g * (NOW - t) / 86400).toFixed(1));
+    const tot = ts.map(t => t < first ? null : sum('total'));
+    document.getElementById('c-legend').innerHTML = legend([['Allocated', C.blue], ['Provisioned', C.mag], ['Total (physical)', C.grey, true]]);
+    lineChart(document.getElementById('cap'), labels, [{ label: 'Allocated', data: grow(sum('allocated'), sum('gAlloc')), borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' },
+      { label: 'Provisioned', data: grow(sum('provisioned'), sum('gProv')), borderColor: C.mag }, { label: 'Total', data: tot, borderColor: C.grey, borderDash: [5, 4], borderWidth: 1, pointRadius: 0 }],
+      { tickFmt: v => `${Math.round(v).toLocaleString()} GiB` });
+    document.getElementById('c-note').innerHTML = m.real ? '<i class="fa fa-info-circle"></i> Real: nothing has changed since the cloud was deployed (11/17 14:30): 1 GiB allocated, 2 GiB provisioned (the volume and its snapshot), 28.5 GiB total.'
+      : '<i class="fa fa-info-circle"></i> Provisioned above total is normal with thin provisioning. Watch the gap to the virtual limit in the pool table.';
+  } else {
+    const top = [...P].sort((a, b) => b.phys - a.phys).slice(0, 5);
+    document.getElementById('c-legend').innerHTML = legend([...top.map((p, i) => [p.name, CAT[i]]), ['Warning 75%', C.warn, true], ['Critical 90%', C.crit, true]]);
+    lineChart(document.getElementById('cap'), labels, [...top.map((p, i) => ({ label: p.name, data: ts.map(t => +(100 * (p.allocated - p.gAlloc * (NOW - t) / 86400) / p.total).toFixed(1)), borderColor: CAT[i] })),
+      refLine('Warning', 75, n, C.warn), refLine('Critical', 90, n, C.crit)], { unit: '%', max: 100 });
+    document.getElementById('c-note').innerHTML = '<i class="fa fa-info-circle"></i> Physical use (allocated ÷ total) of the 5 fullest pools.';
+  }
+
+  // Pools
+  const order = { soon: (a, b) => (a.fc ? a.fc[0] : 1e9) - (b.fc ? b.fc[0] : 1e9) || b.phys - a.phys, full: (a, b) => Math.max(b.phys, b.virt) - Math.max(a.phys, a.virt), stale: (a, b) => (b.last || 0) - (a.last || 0) };
+  const poolRow = p => `<tr class="${p.sev === 3 ? 'danger' : p.sev === 2 ? 'warning' : ''}"><td><strong>${p.name}</strong></td>
+    <td><span class="twobar">${useBar(p.phys)} <small class="text-muted">${Math.round(p.allocated).toLocaleString()} / ${p.total.toLocaleString()}</small></span></td>
+    <td><span class="twobar">${useBar(p.virt)} <small class="text-muted">${Math.round(p.provisioned).toLocaleString()} / ${Math.round(p.limit).toLocaleString()}</small></span></td>
+    <td class="text-right">${p.free.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+    <td>${!p.enough ? `<span class="text-muted"><i class="fa fa-hourglass-half"></i> Insufficient data (${m.historyDays} of 7 days)</span>` : !p.fc ? '<span class="text-success"><i class="fa fa-check"></i> Not growing</span>'
+      : `<span class="${p.fc[0] <= 14 ? 'text-danger' : p.fc[0] <= 30 ? 'text-warning' : 'text-muted'}"><i class="fa fa-clock-o"></i> Full in ~${p.fc[0]} days <small>(${p.fc[1]})</small></span>`}</td>
+    <td class="text-right">${p.stale ? `<span class="text-danger">${ago(p.last)}</span>` : ago(p.last)}</td>
+    <td>${p.stale ? '<span class="tag tag-warn"><i class="fa fa-eye-slash"></i> Stale</span>' : p.sev === 3 ? '<span class="tag tag-crit"><i class="fa fa-exclamation-circle"></i> Critical</span>' : p.sev === 2 ? '<span class="tag tag-warn"><i class="fa fa-exclamation-triangle"></i> Warning</span>' : '<span class="tag tag-ok"><i class="fa fa-check"></i> Healthy</span>'}</td></tr>`;
+  document.getElementById('pools').innerHTML = [...P].sort(order[sortBy]).slice(0, 10).map(poolRow).join('');
+  document.getElementById('pool-names').innerHTML = P.map(p => `<option value="${p.name}">`).join('');
+  document.getElementById('pools-foot').innerHTML = `<i class="fa fa-info-circle"></i> ${P.length} pool${P.length > 1 ? 's' : ''}${P.length > 10 ? ', top 10 shown' : ''}. <strong>Physical</strong> is space really used; <strong>virtual</strong> is what thin provisioning promised, against the over-subscription limit.` +
+    (m.real ? ' This LVM pool shows why both matter: free is 28.5 GiB, equal to total, although 2 GiB are provisioned; only the virtual figure (2 of 570 GiB) moves.' : '') +
+    ' Replaces the Storage Pools, Capacity Forecast and Detailed Pool Information panels.';
+  document.getElementById('lookup-form').onsubmit = e => { e.preventDefault(); const q = document.getElementById('lookup').value.trim(), p = P.find(x => x.name === q);
+    document.getElementById('lookup-result').innerHTML = p ? `<table class="table tbl" style="margin:10px 0 0"><tbody>${poolRow(p)}</tbody></table>` : `<p class="text-muted" style="margin-top:8px">No pool named "${q}".</p>`; };
+
+  document.getElementById('svcs').innerHTML = m.services.map(s => `<tr class="${s.up ? '' : 'danger'}"><td>${s.svc}</td><td>${s.host}</td>
+    <td>${s.up ? '<span class="tag tag-ok"><i class="fa fa-check"></i> up</span>' : `<span class="tag tag-crit"><i class="fa fa-times"></i> down since ${s.since}</span>`}</td>
+    <td><div class="strip" role="img" aria-label="Availability over 24 hours">${s.h24.map(x => `<span style="background:${x === 1 ? C.ok : C.crit}" title="${x === 1 ? 'up' : 'down'}"></span>`).join('')}</div></td>
+    <td class="text-right">${Math.round(100 * s.h24.filter(x => x === 1).length / s.h24.length)}%</td></tr>`).join('');
+
+  const be = {}; P.forEach(p => { const k = p.name.split('#')[0], b = be[k] = be[k] || { name: k, pools: 0, total: 0, provisioned: 0 }; b.pools++; b.total += p.total; b.provisioned += p.provisioned; });
+  document.getElementById('backends').innerHTML = Object.values(be).map(b => { const os = b.provisioned / b.total, bad = svcDown.some(s => b.name.includes(s.host.split('@')[1]));
+    return `<tr class="${bad ? 'danger' : ''}"><td><strong>${b.name}</strong>${bad ? ' <span class="tag tag-crit">service down</span>' : ''}</td><td class="text-right">${b.pools}</td><td class="text-right">${b.total.toLocaleString()}</td>
+      <td><span class="ratio ${os > 1.2 ? 'warn' : ''}" style="width:60px"><span style="width:${Math.min(100, os * 50)}%"></span></span>${os.toFixed(2)}×</td></tr>`; }).join('');
+
+  const projs = {}; m.volumes.forEach(x => { const r = projs[x.project] = projs[x.project] || { p: x.project, nv: 0, gv: 0, ns: 0, gs: 0 }; r.nv++; r.gv += x.gb; });
+  m.snapshots.forEach(x => { const r = projs[x.project] = projs[x.project] || { p: x.project, nv: 0, gv: 0, ns: 0, gs: 0 }; r.ns++; r.gs += x.gb; });
+  const totG = Object.values(projs).reduce((a, r) => a + r.gv + r.gs, 0), top = Object.values(projs).sort((a, b) => (b.gv + b.gs) - (a.gv + a.gs)).slice(0, 10);
+  document.getElementById('byproj').innerHTML = top.map((r, i) => { const sh = (r.gv + r.gs) / totG, col = i < 5 ? CAT[i] : OTHER;
+    return `<tr><td><span class="sw" style="background:${col}"></span><a class="tbl-link"><strong>${r.p}</strong></a></td><td class="text-right">${r.nv}</td><td class="text-right">${Math.round(r.gv).toLocaleString()}</td><td class="text-right">${r.ns}</td><td class="text-right">${Math.round(r.gs).toLocaleString()}</td>
+      <td><span class="ratio" style="width:100px"><span style="width:${sh * 100}%;background:${col}"></span></span>${Math.round(sh * 100)}%</td></tr>`; }).join('');
+
+  const imgB = m.images.reduce((a, i) => a + i.bytes, 0), imgProj = new Set(m.images.map(i => i.project));
+  document.getElementById('images').innerHTML = `<table class="kv"><tr><td>Images</td><td><strong>${m.images.length}</strong> in ${imgProj.size} project${imgProj.size > 1 ? 's' : ''}</td></tr>
+    <tr><td>Image store</td><td><strong>${fmtBytes(imgB)}</strong></td></tr>
+    <tr><td>Downloads, 24 h</td><td><strong>${m.downloads}</strong>${m.real ? ' <small class="text-muted">(0 in 48 h although 4 instances booted today: image cached on the host, or Glance download notifications not reaching Ceilometer; to check)</small>' : ''}</td></tr>
+    <tr><td>Volume backups</td><td>${m.backups ? `<strong>${m.backups.count}</strong> | ${m.backups.gb.toLocaleString()} GiB` : '<span class="text-muted">Backup service (c-bak) not enabled</span>'}</td></tr></table>`;
+}
+scenarios(k => { scn = k; M = k === 'demo' ? modelDemo() : modelSample(); render(); });
+document.getElementById('hl').onchange = e => document.body.classList.toggle('hl', e.target.checked);
+const tg = (id, set) => document.getElementById(id).onclick = e => { const b = e.target.closest('button'); if (!b) return; set(b);
+  document.querySelectorAll(`#${id} button`).forEach(x => x.classList.toggle('active', x === b)); render(); };
+tg('range', b => days = +b.dataset.range); tg('view', b => view = b.dataset.view); tg('sort', b => sortBy = b.dataset.sort);
+</script>
+</body>
+</html>

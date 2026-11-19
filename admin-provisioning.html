@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Admin → Telemetry → Provisioning – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="project-common.css">
+</head>
+<body>
+<div class="hz-topbar" id="topbar"></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs" id="sidebar"></div>
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong> | Data:
+      <button class="btn btn-xs btn-default active" data-scn="demo">DevStack cloud (real, 2026-11-18)</button>
+      <button class="btn btn-xs btn-default" data-scn="sample">Sample: 40 hosts, one slow</button>
+      <span class="mock-note">Real: the 5 boots of the cloud so far (one sample per boot) and the failed build from the Compute API. The sample is invented.</span>
+    </div>
+
+    <div class="page-header"><h1>Provisioning</h1></div>
+
+    <div class="row toolbar">
+      <div class="col-sm-8">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Time range" id="range">
+          <button class="btn btn-default" data-range="1">24h</button>
+          <button class="btn btn-default active" data-range="7">7d</button>
+          <button class="btn btn-default" data-range="14">14d</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px">Metrics are kept for 15 days in this cloud, so 14 days is the longest range.</span>
+      </div>
+      <div class="col-sm-4 text-right refresh-info"><i class="fa fa-refresh"></i> Auto-refresh every 5 min</div>
+    </div>
+
+    <div class="row" id="cards"></div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-rocket"></i> Boot times <span class="bounded">max 2000 points</span></h3></div>
+      <div class="panel-body"><div id="c-legend"></div><div class="chart-box"><canvas id="scatter"></canvas></div>
+        <p class="help-block-sm" style="margin:8px 0 0" id="sc-note">One dot per instance boot: time from the create request until the instance is running. Hover a dot for the instance and host.</p></div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-7"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-server"></i> By compute host <span class="bounded">slowest 10</span></h3></div>
+        <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+          <thead><tr><th>Host</th><th class="text-right">Boots</th><th class="text-right">Median</th><th class="text-right">Slowest</th><th class="text-right">Last 24 h median</th><th>vs cloud, 24 h</th><th>Status</th></tr></thead>
+          <tbody id="hosts"></tbody></table></div>
+        <div class="panel-footer help-block-sm" id="hosts-foot"></div>
+      </div></div>
+      <div class="col-md-5"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-times-circle"></i> Failed builds <span class="src">Compute API</span></h3></div>
+        <div id="failed"></div>
+      </div></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-hourglass-end"></i> Slowest boots <span class="bounded">top 10</span></h3></div>
+      <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+        <thead><tr><th>Instance</th><th>Project</th><th>Host</th><th>Flavor</th><th class="text-right">Boot time</th><th class="text-right">When (UTC)</th></tr></thead>
+        <tbody id="slow"></tbody></table></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('how').classList.toggle('hidden')">
+        <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+      <div class="panel-body hidden" id="how">
+        <table class="thr-table help-block-sm" style="color:#333">
+          <tr><th>Item</th><th>Source / rule</th></tr>
+          <tr><td>Boot time</td><td><code>ceilometer_compute_instance_booting_time</code> (seconds, one notification per boot). Its <code>vm_instance</code> label is the <strong>real host name</strong>, unlike the other instance metrics.</td></tr>
+          <tr><td>Counting boots</td><td>Prometheus keeps scraping the last value for a while (10–18 identical samples per boot on the VM), so boots are counted per instance and value, not per sample: <code>last_over_time(…[range])</code> by <code>resource</code>, plus <code>changes()</code> for rebuilds.</td></tr>
+          <tr><td>Slow host</td><td>Always judged on the <strong>last 24 h</strong>, whatever the range: at least 3 boots and a median above 2× the cloud's 24 h median → <em>Slow</em>; above 1.5× → <em>Slower</em>. A longer range would hide a host that turned slow recently behind its older, normal boots.</td></tr>
+          <tr><td>Slowest / p95</td><td>With fewer than 20 boots, the page shows the slowest boot instead of a 95th percentile.</td></tr>
+          <tr><td>Failed builds</td><td>Compute API: instances in ERROR whose creation falls in the range, with the instance fault. A failed build has no boot time sample.</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="project-demo-data.js"></script>
+<script src="project-common.js"></script>
+<script src="admin-demo-data.js"></script>
+<script src="admin-common.js"></script>
+<script>
+adminChrome('prov');
+let scn, days = 7, M;
+const NOW = Date.parse('2026-11-18T20:17Z') / 1000;
+const SLOW_HOST = 'compute-017';
+
+function modelDemo() {
+  return { real: true, boots: ADM.boots.map(b => ({ ...b, t: Date.parse(b.at) / 1000 })), failed: ADM.failed_builds.map(f => ({ ...f, t: Date.parse(f.at) / 1000 })) };
+}
+function modelSample() {
+  const hosts = Array.from({ length: 40 }, (_, i) => 'compute-' + String(i + 1).padStart(3, '0'));
+  const flavors = ['m1.small', 'm1.medium', 'm1.large', 'm1.xlarge'], boots = [];
+  for (let i = 0; i < 6000; i++) {
+    const t = NOW - rnd() * 14 * 86400, host = hosts[Math.floor(rnd() * hosts.length)], fl = flavors[Math.floor(rnd() * 4)];
+    let secs = 8 + rnd() * 6 + (fl === 'm1.xlarge' ? 4 : 0) + (rnd() < .03 ? 20 + rnd() * 30 : 0);
+    if (host === SLOW_HOST && t > NOW - 2.2 * 86400) secs = 38 + rnd() * 25;   // image cache on this host broke ~2 days ago
+    const p = SAMPLE_PROJECTS[Math.floor(rnd() * SAMPLE_PROJECTS.length)];
+    boots.push({ inst: `${p.split('-')[0]}-${Math.floor(rnd() * 900 + 100)}`, project: p, host, flavor: fl, secs: +secs.toFixed(1), t });
+  }
+  const faults = [['No valid host was found.', 4], ['Port binding failed for port …', 2], ['Volume … did not finish being created even after we waited 187 seconds', 1]];
+  const failed = []; faults.forEach(([f, n]) => { for (let i = 0; i < n; i++) failed.push({ inst: `ml-train-${Math.floor(rnd() * 90 + 10)}`, project: f.startsWith('No valid') ? 'ml-training' : SAMPLE_PROJECTS[Math.floor(rnd() * 12)],
+    flavor: f.startsWith('No valid') ? 'gpu.a100x8' : 'm1.large', fault: f, t: NOW - rnd() * 6 * 86400 }); });
+  return { real: false, boots, failed };
+}
+const fmtS = s => s == null ? '—' : `${s.toFixed(1)} s`;
+const when = t => { const d = new Date(t * 1000); return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
+
+function render() {
+  resetCharts();
+  const from = NOW - days * 86400, B = M.boots.filter(b => b.t >= from), F = M.failed.filter(f => f.t >= from);
+  const secs = B.map(b => b.secs), med = median(secs), many = B.length >= 20;
+  const tail = many ? quantile(secs, .95) : Math.max(...secs, 0);
+  // Host status always uses the last 24 h, whatever the range: a host that turned slow recently
+  // must not be hidden by a week of normal boots.
+  const byHost = {}; B.forEach(b => (byHost[b.host] = byHost[b.host] || []).push(b.secs));
+  const R24 = M.boots.filter(b => b.t >= NOW - 86400), med24 = median(R24.map(b => b.secs)), by24 = {};
+  R24.forEach(b => (by24[b.host] = by24[b.host] || []).push(b.secs));
+  const hostRows = Object.entries(byHost).map(([h, s]) => { const r = by24[h] || []; const m24 = median(r);
+      return { h, n: s.length, med: median(s), max: Math.max(...s), n24: r.length, med24: m24, ratio: m24 != null && med24 ? m24 / med24 : null }; })
+    .sort((a, b) => (b.n24 >= 3 ? b.ratio : 0) - (a.n24 >= 3 ? a.ratio : 0) || b.med - a.med);
+  const slow = hostRows.filter(r => r.n24 >= 3 && r.ratio >= 2), slower = hostRows.filter(r => r.n24 >= 3 && r.ratio >= 1.5 && r.ratio < 2);
+
+  document.getElementById('cards').innerHTML =
+    card('panel-primary', 'rocket', B.length, 'Instances booted', `last ${days === 1 ? '24 h' : days + ' days'} | ${Object.keys(byHost).length} host${Object.keys(byHost).length === 1 ? '' : 's'}`) +
+    card(med > 30 ? 'panel-yellow' : 'panel-green', 'clock-o', fmtS(med), 'Median boot time', many ? 'all boots in range' : `only ${B.length} boots: indicative`) +
+    card(slow.length ? 'panel-red' : slower.length ? 'panel-yellow' : 'panel-green', 'hourglass-end', many ? fmtS(tail) : fmtS(tail), many ? '95th percentile' : 'Slowest boot',
+      slow.length ? `${slow.length} slow host${slow.length > 1 ? 's' : ''}: ${slow.map(r => r.h).join(', ')}` : 'no slow hosts') +
+    card(F.length ? (F.length / (B.length + F.length) > .05 ? 'panel-red' : 'panel-yellow') : 'panel-green', 'times-circle', F.length, 'Failed builds',
+      F.length ? `${pct(F.length, B.length + F.length)}% of create requests` : 'none');
+
+  // Scatter: slow hosts in orange, others blue; median as a grey dashed line.
+  // Keep the chart bounded: at most 2000 dots, thinned evenly (slow-host dots are always kept).
+  const thin = (arr, max) => arr.length <= max ? arr : arr.filter((_, i) => i % Math.ceil(arr.length / max) === 0);
+  const pts = (arr) => arr.map(b => ({ x: b.t, y: b.secs, b }));
+  const normal = B.filter(b => !slow.some(r => r.h === b.host)), hot = B.filter(b => slow.some(r => r.h === b.host));
+  const ds = [{ label: 'Boot', data: pts(thin(normal, 2000 - hot.length)), backgroundColor: hexA(C.blue, .6), borderColor: '#fff', borderWidth: 1, pointRadius: M.real ? 6 : 4, pointHoverRadius: 7 }];
+  if (hot.length) ds.push({ label: `Boot on ${slow.map(r => r.h).join(', ')}`, data: pts(hot), backgroundColor: hexA(CAT[1], .85), borderColor: '#fff', borderWidth: 1, pointRadius: 5, pointHoverRadius: 7 });
+  ds.push({ label: 'Cloud median', type: 'line', data: [{ x: from, y: med }, { x: NOW, y: med }], borderColor: C.grey, borderDash: [5, 4], borderWidth: 1, pointRadius: 0 });
+  document.getElementById('c-legend').innerHTML = '<div class="chart-legend">' + `<span><span class="sw" style="background:${C.blue};border-radius:50%"></span>Boot</span>` +
+    (hot.length ? `<span><span class="sw" style="background:${CAT[1]};border-radius:50%"></span>Boot on ${slow.map(r => r.h).join(', ')} (slow host)</span>` : '') +
+    `<span><span class="ln dash" style="border-color:${C.grey}"></span>Cloud median (${fmtS(med)})</span></div>`;
+  document.getElementById('sc-note').innerHTML = 'One dot per instance boot: time from the create request until the instance is running. Hover a dot for the instance and host.' +
+    (B.length > 2000 ? ` <strong>${B.length} boots: thinned to 2000 dots</strong> (slow-host boots always shown); the cards and tables use all of them.` : '');
+  CHARTS.push(new Chart(document.getElementById('scatter'), { type: 'scatter', data: { datasets: ds }, options: { maintainAspectRatio: false, animation: false,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.raw.b ? `${c.raw.b.inst} (${c.raw.b.project}) on ${c.raw.b.host}: ${fmtS(c.raw.b.secs)}` : `Median ${fmtS(med)}` } } },
+    scales: { x: { type: 'linear', min: from, max: NOW, ticks: { maxTicksLimit: 8, callback: v => days === 1 ? clockLabel(v) : dayLabel(v) }, grid: { display: false } },
+      y: { beginAtZero: true, title: { display: true, text: 'seconds' }, grid: { color: '#f0f0f0' } } } } }));
+
+  document.getElementById('hosts').innerHTML = hostRows.slice(0, 10).map(r => {
+    const st = r.n24 < 3 ? '<span class="text-muted">too few boots in 24 h</span>' : r.ratio >= 2 ? '<span class="tag tag-crit"><i class="fa fa-exclamation-circle"></i> Slow</span>'
+      : r.ratio >= 1.5 ? '<span class="tag tag-warn"><i class="fa fa-exclamation-triangle"></i> Slower</span>' : '<span class="tag tag-ok"><i class="fa fa-check"></i> Normal</span>';
+    return `<tr class="${r.n24 >= 3 && r.ratio >= 2 ? 'danger' : ''}"><td><a class="tbl-link" href="compute-host-health-v2.html"><strong>${r.h}</strong></a></td><td class="text-right">${r.n}</td>
+      <td class="text-right">${fmtS(r.med)}</td><td class="text-right">${fmtS(r.max)}</td><td class="text-right">${r.n24 ? fmtS(r.med24) + ` <small class="text-muted">(${r.n24})</small>` : '<span class="text-muted">—</span>'}</td>
+      <td>${r.ratio == null ? '<span class="text-muted">—</span>' : `<span class="ratio ${r.ratio >= 2 ? 'crit' : r.ratio >= 1.5 ? 'warn' : ''}" style="width:70px"><span style="width:${Math.min(100, r.ratio * 33)}%"></span></span>${r.ratio.toFixed(1)}×`}</td><td>${st}</td></tr>`;
+  }).join('') || '<tr><td colspan="7" class="text-muted text-center">No boots in this range.</td></tr>';
+  document.getElementById('hosts-foot').innerHTML = `<i class="fa fa-info-circle"></i> ${hostRows.length} host${hostRows.length === 1 ? '' : 's'} booted instances in this range.` +
+    (slow.length ? ` <strong>${slow[0].h}</strong> boots ${slow[0].ratio.toFixed(1)}× slower than the cloud. Common causes: image cache on the host, slow image download from Glance, or a busy host (see Compute Host Health).` : '');
+
+  document.getElementById('failed').innerHTML = F.length ? `<table class="table tbl" style="margin-bottom:0"><tbody>` + F.sort((a, b) => b.t - a.t).slice(0, 8).map(f =>
+    `<tr><td><strong>${f.inst}</strong><br><small class="text-muted">${f.project} | ${f.flavor} | ${when(f.t)}</small></td><td class="help-block-sm" style="color:#a94442">${f.fault}</td></tr>`).join('') +
+    `</tbody></table><div class="panel-footer help-block-sm">"No valid host" means the scheduler found no host with room for the flavor. Repeated, it is a capacity signal.</div>`
+    : '<div class="panel-body empty-state"><i class="fa fa-check-circle text-success"></i>No failed builds.</div>';
+
+  document.getElementById('slow').innerHTML = [...B].sort((a, b) => b.secs - a.secs).slice(0, 10).map(b =>
+    `<tr><td><strong>${b.inst}</strong></td><td>${b.project}</td><td>${b.host}</td><td>${b.flavor}</td><td class="text-right">${fmtS(b.secs)}</td><td class="text-right">${when(b.t)}</td></tr>`).join('')
+    || '<tr><td colspan="6" class="text-muted text-center">No boots in this range.</td></tr>';
+}
+scenarios(k => { scn = k; M = k === 'demo' ? modelDemo() : modelSample(); render(); });
+document.getElementById('range').onclick = e => { const b = e.target.closest('button'); if (!b) return; days = +b.dataset.range;
+  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('active', x === b)); render(); };
+</script>
+</body>
+</html>

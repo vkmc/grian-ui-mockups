@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Project → Telemetry → Instance metrics – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="project-common.css">
+<style>
+  .tile { background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 10px 12px; }
+  .tile .n { font-size: 1.8em; font-weight: 300; line-height: 1.1; }
+  .tile .t { font-weight: 600; }
+  .tile .d { font-size: 11px; color: #777; }
+  .tiles { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
+  .tiles .tile { flex: 1 1 150px; }
+</style>
+</head>
+<body>
+<div class="hz-topbar" id="topbar"></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs" id="sidebar"></div>
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong> | Data:
+      <button class="btn btn-xs btn-default active" data-scn="demo">demo project (real, 2026-11-18)</button>
+      <button class="btn btn-xs btn-default" data-scn="sample">Sample: larger project</button>
+      <span class="mock-note">Reached by clicking an instance on the Compute or Network page; it isn't in the sidebar. The demo charts are the real 12 h history read as demo/demo through Aetos.</span>
+    </div>
+
+    <ol class="breadcrumb" style="background:none;padding:0;margin-bottom:5px"><li>Telemetry</li><li><a href="project-compute.html">Compute</a></li><li class="active" id="bc"></li></ol>
+    <div class="page-header" style="display:flex;align-items:baseline;gap:15px">
+      <h1 style="margin:0">Instance metrics</h1>
+      <select id="pick" class="form-control input-sm" style="width:auto" aria-label="Instance"></select>
+    </div>
+
+    <div class="row toolbar">
+      <div class="col-sm-7">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Time range" id="range"></div>
+        <span class="help-block-sm" style="margin-left:8px" id="range-note"></span>
+      </div>
+      <div class="col-sm-5 text-right refresh-info"><i class="fa fa-refresh"></i> Auto-refresh every 30s | last updated <span>just now</span></div>
+    </div>
+
+    <div class="panel panel-default"><div class="panel-body" id="info"></div></div>
+    <div id="body"></div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('how').classList.toggle('hidden')">
+        <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+      <div class="panel-body hidden" id="how">
+        <table class="thr-table help-block-sm" style="color:#333">
+          <tr><th>Item</th><th>Source / query / rule</th></tr>
+          <tr><td>Instance list</td><td>Compute API: the instances of the current project. The page is opened from the Compute, Network or Usage pages.</td></tr>
+          <tr><td>CPU used</td><td><code>rate(ceilometer_cpu{resource="&lt;uuid&gt;"}[5m]) / 1e9</code>: vCPUs busy. Dashed line: <code>ceilometer_vcpus</code>.</td></tr>
+          <tr><td>CPU wait</td><td><code>rate(ceilometer_cpu_delay[5m]) / 1e9</code> ÷ vCPUs. Warning 5%, critical 20%, as in Instance Health.</td></tr>
+          <tr><td>Memory used</td><td><code>ceilometer_memory_usage</code> against <code>ceilometer_memory</code> (flavor RAM). Swap: <code>rate(ceilometer_memory_swap_{in,out}[5m])</code>.</td></tr>
+          <tr><td>Disk throughput</td><td><code>rate(ceilometer_disk_device_{read,write}_bytes[5m])</code>, summed over the instance's disks.</td></tr>
+          <tr><td>Disk latency</td><td><code>rate(…_write_latency[5m]) ÷ rate(…_write_requests[5m])</code>. Empty when there were no writes.</td></tr>
+          <tr><td>Network traffic</td><td><code>rate(ceilometer_network_{incoming,outgoing}_bytes[5m])</code>, summed over the instance's interfaces.</td></tr>
+          <tr><td>Time series</td><td>Aetos has no <code>query_range</code>: each chart is an instant query with a subquery, e.g. <code>(…)[12h:5m]</code>.</td></tr>
+        </table>
+        <p class="help-block-sm" style="margin-top:8px">Only polled samples are used (<code>resource_name</code> ending in <code>:instance-&lt;uuid&gt;</code>), so nothing is counted twice. Aetos limits every query to the current project.</p>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="project-demo-data.js"></script>
+<script src="project-common.js"></script>
+<script>
+chrome('compute');
+let scn, inst, range;
+const RANGES = { demo: ['1h', '6h', '12h'], sample: ['1h', '6h', '24h', '7d'] };
+const RN = { '1h': [13, 300], '6h': [73, 300], '12h': [145, 300], '24h': [96, 900], '7d': [84, 7200] };
+
+function servers() {
+  return scn === 'demo' ? DEMO.servers : SAMPLE.servers;
+}
+function seriesFor(s) {
+  const [n, step] = RN[range];
+  if (scn === 'demo') {
+    const g = demoGrid().slice(-n), f = k => demoSeries(k, s.name, g);
+    return { labels: g.map(clockLabel), cpu: f('cpu_cores'), wait: f('cpu_wait_cores').map(v => v == null ? null : +(100 * v / s.vcpus).toFixed(1)),
+      mem: f('mem_used_mib'), rd: f('disk_read_Bps'), wr: f('disk_write_Bps'), lat: f('disk_write_lat_ms'), nin: f('net_in_Bps'), nout: f('net_out_Bps'), drops: f('net_drop_err_pps') };
+  }
+  const lab = Array.from({ length: n }, (_, i) => { const t = Date.now() / 1000 - (n - 1 - i) * step; return range === '7d' ? dayLabel(t) : clockLabel(t); });
+  const wr = noisy(s.name.startsWith('db') ? 8e6 : 4e5, n, .4);
+  return { labels: lab, cpu: noisy(s.cpu * s.vcpus, n, .15), wait: noisy(s.cpuWait * 100, n, .3), mem: noisy(s.mem * s.ram_mib, n, .03),
+    rd: noisy(s.name.startsWith('db') ? 3e6 : 1e5, n, .5), wr, lat: noisy(s.name === 'db-01' ? 34 : 3, n, .25), nin: noisy(s.netIn, n, .12), nout: noisy(s.netOut, n, .12),
+    drops: noisy(s.name === 'web-03' ? 2.4 : 0, n, .3) };
+}
+
+function render() {
+  resetCharts();
+  const s = servers().find(x => x.name === inst) || servers()[0]; inst = s.name;
+  location.hash = inst;
+  document.getElementById('bc').textContent = s.name;
+  document.getElementById('pick').innerHTML = servers().map(x => `<option ${x.name === inst ? 'selected' : ''}>${x.name}</option>`).join('');
+  document.getElementById('range').innerHTML = RANGES[scn].map(r => `<button class="btn btn-default ${r === range ? 'active' : ''}" data-range="${r}">${r}</button>`).join('');
+  document.getElementById('range-note').textContent = scn === 'demo' ? 'This instance was created at about 11:00 today, so there are at most 9 hours of data.' : 'Range for all charts.';
+
+  const net = s.network ? `${s.network}${s.ip ? ' | ' + s.ip : ''}` : '—';
+  document.getElementById('info').innerHTML = `<div class="row"><div class="col-md-8"><table class="kv"><tr><td>Status</td><td>${statusText(s.status)}</td><td style="padding-left:20px">Flavor</td><td><strong>${s.flavor}</strong> | ${s.vcpus} vCPU | ${fmtMiB(s.ram_mib)} RAM | ${s.disk_gb} GB disk</td></tr>
+    <tr><td>ID</td><td><code>${s.id}</code></td><td style="padding-left:20px">Network</td><td>${net}</td></tr></table></div>
+    <div class="col-md-4 text-right"><a class="btn btn-sm btn-default"><i class="fa fa-external-link"></i> Instance details</a> <a class="btn btn-sm btn-default"><i class="fa fa-terminal"></i> Console</a> <a class="btn btn-sm btn-default"><i class="fa fa-arrows-alt"></i> Resize…</a></div></div>`;
+
+  const body = document.getElementById('body');
+  if (s.status !== 'ACTIVE') {
+    body.innerHTML = `<div class="panel panel-default"><div class="panel-body empty-state"><i class="fa fa-${s.status === 'ERROR' ? 'exclamation-circle text-danger' : 'power-off'}"></i>
+      <h4>No metrics for this instance</h4><p>${s.status === 'ERROR' ? `It is in ERROR state and never started (fault: <em>${s.fault}</em>). It still counts against your quota: ${s.vcpus} vCPU and ${fmtMiB(s.ram_mib)} RAM.`
+      : 'It is shut off. Metrics stop when an instance stops; the history from when it ran is kept for the retention period.'}</p>
+      <p><a href="project-compute.html${scn === 'demo' ? '' : '?scn=sample'}">See it under "Holding quota without running" on the Compute page</a></p></div></div>`;
+    return;
+  }
+  const d = seriesFor(s), n = d.labels.length;
+  const lv = a => last(a);
+  const tile = (t, v, sub, cls = '') => `<div class="tile"><div class="t">${t}</div><div class="n ${cls}">${v}</div><div class="d">${sub}</div></div>`;
+  const waitNow = lv(d.wait) ?? 0, cpuNow = lv(d.cpu) ?? 0, memNow = lv(d.mem) ?? 0;
+  body.innerHTML = `<div class="tiles">
+      ${tile('CPU', `${cpuNow.toFixed(1)} <small style="font-size:.5em">of ${s.vcpus} vCPU</small>`, `${pct(cpuNow, s.vcpus)}% of the flavor`, cpuNow / s.vcpus >= .8 ? 'text-danger' : '')}
+      ${tile('CPU wait', `${waitNow.toFixed(0)}%`, 'time waiting for a host CPU', waitNow >= 20 ? 'text-danger' : waitNow >= 5 ? 'text-warning' : '')}
+      ${tile('Memory', fmtMiB(memNow), `of ${fmtMiB(s.ram_mib)} (${pct(memNow, s.ram_mib)}%) | no swap`)}
+      ${tile('Disk', fmtRate(lv(d.wr)), `written | ${fmtRate(lv(d.rd))} read`)}
+      ${tile('Network', fmtRate(lv(d.nin)), `in | ${fmtRate(lv(d.nout))} out`)}
+    </div>
+    <div class="row">${box('c-cpu', 'CPU used (vCPUs)', [['Used', C.blue], [`vCPUs in flavor (${s.vcpus})`, C.grey, true]], 'If the line sits at the flavor limit, the instance needs more vCPUs.')}
+      ${box('c-wait', 'CPU wait (% of vCPU time)', [['Wait', C.blue], ['Warning 5%', C.warn, true], ['Critical 20%', C.crit, true]], 'Time the guest was ready to run but the host had no free CPU. Caused by the host, not by your workload.')}</div>
+    <div class="row">${box('c-mem', 'Memory used', [['Used', C.blue], [`Flavor RAM (${fmtMiB(s.ram_mib)})`, C.grey, true]], 'As reported by the guest balloon driver. Close to the limit, or any swap, means a bigger flavor is needed.')}
+      ${box('c-disk', 'Disk throughput', [['Read', C.blue], ['Write', C.mag]], 'All disks of the instance.')}</div>
+    <div class="row">${box('c-lat', 'Disk latency per write request (ms)', [['Latency', C.blue], ['Warning 20 ms', C.warn, true], ['Critical 100 ms', C.crit, true]], 'Gaps mean no writes in that interval. With very few writes the value jumps around and isn\'t meaningful.')}
+      ${box('c-net', 'Network traffic', [['Inbound', C.blue], ['Outbound', C.mag]], 'All interfaces. See the Network page for drops, errors and whether neighbours are affected.')}</div>`;
+  const L = d.labels;
+  lineChart(document.getElementById('c-cpu'), L, [{ label: 'CPU used', data: d.cpu, borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' }, refLine('vCPUs', s.vcpus, n)], { max: s.vcpus * 1.15, tickFmt: v => `${+v.toFixed(1)}` });
+  lineChart(document.getElementById('c-wait'), L, [{ label: 'CPU wait', data: d.wait, borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' }, refLine('Warning', 5, n, C.warn), refLine('Critical', 20, n, C.crit)], { unit: '%', max: Math.max(25, Math.ceil(Math.max(...d.wait.filter(v => v != null)) / 5) * 5 + 5) });
+  lineChart(document.getElementById('c-mem'), L, [{ label: 'Memory used', data: d.mem, borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' }, refLine('Flavor RAM', s.ram_mib, n)], { max: s.ram_mib * 1.1, tickFmt: fmtMiB });
+  lineChart(document.getElementById('c-disk'), L, [{ label: 'Read', data: d.rd, borderColor: C.blue }, { label: 'Write', data: d.wr, borderColor: C.mag }], { tickFmt: fmtRate });
+  lineChart(document.getElementById('c-lat'), L, [{ label: 'Latency', data: d.lat, borderColor: C.blue }, refLine('Warning', 20, n, C.warn), refLine('Critical', 100, n, C.crit)], { unit: ' ms' });
+  lineChart(document.getElementById('c-net'), L, [{ label: 'Inbound', data: d.nin, borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' }, { label: 'Outbound', data: d.nout, borderColor: C.mag }], { tickFmt: fmtRate });
+}
+function box(id, title, leg, help) {
+  return `<div class="col-md-6"><div class="panel panel-default"><div class="panel-heading"><h3 class="panel-title">${title}</h3></div>
+    <div class="panel-body">${legend(leg)}<div class="chart-box sm"><canvas id="${id}"></canvas></div><p class="help-block-sm" style="margin:6px 0 0">${help}</p></div></div></div>`;
+}
+
+// An instance name in the URL hash picks the data set it belongs to.
+const want = decodeURIComponent(location.hash.slice(1));
+if (want && !DEMO.servers.some(s => s.name === want) && SAMPLE.servers.some(s => s.name === want) && !location.search) history.replaceState(null, '', '?scn=sample#' + want);
+scenarios(k => { scn = k; range = k === 'demo' ? '12h' : '24h'; inst = (k === 'demo' ? DEMO : SAMPLE).servers.some(s => s.name === want) ? want : null; render(); });
+document.getElementById('pick').onchange = e => { inst = e.target.value; render(); };
+document.getElementById('range').onclick = e => { const b = e.target.closest('button'); if (!b) return; range = b.dataset.range; render(); };
+</script>
+</body>
+</html>

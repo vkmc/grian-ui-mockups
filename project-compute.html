@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Project → Telemetry → Compute – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="project-common.css">
+</head>
+<body>
+<div class="hz-topbar" id="topbar"></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs" id="sidebar"></div>
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong> | Data:
+      <button class="btn btn-xs btn-default active" data-scn="demo">demo project (real, 2026-11-18)</button>
+      <button class="btn btn-xs btn-default" data-scn="sample">Sample: larger project</button>
+      <button class="btn btn-xs btn-default" data-scn="error">Sample: metrics unavailable</button>
+      <span class="mock-note">"demo project" uses real values read as demo/demo through Aetos and the Nova API. The samples are invented to show states the dev cloud can't produce. Click rows and tiles.</span>
+    </div>
+
+    <div class="page-header"><h1>Compute <small id="proj"></small></h1></div>
+
+    <div class="row toolbar">
+      <div class="col-sm-7">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Time range" id="range">
+          <button class="btn btn-default" data-range="6h">6h</button>
+          <button class="btn btn-default active" data-range="24h">24h</button>
+          <button class="btn btn-default" data-range="7d">7d</button>
+          <button class="btn btn-default" data-range="30d">30d</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px">Range for the charts. Rightsizing always looks at the last 7 days.</span>
+      </div>
+      <div class="col-sm-5 text-right refresh-info"><i class="fa fa-refresh"></i> Auto-refresh every 60s | last updated <span>just now</span></div>
+    </div>
+
+    <div id="err" class="alert alert-danger" style="display:none">
+      <i class="fa fa-exclamation-circle"></i> <strong>Could not load telemetry data</strong> from the metric-storage (Aetos) endpoint.
+      Quota usage below comes from the Compute API and is up to date; usage trends, rightsizing and symptoms are unavailable. Retrying in 60s.
+    </div>
+    <div id="history" class="alert alert-info" style="display:none"></div>
+
+    <div class="row" id="cards"></div>
+
+    <!-- Quota -->
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-pie-chart"></i> Compute quota
+        <span class="src" title="Limits and counts come from the Compute API, like Project → Overview">Compute API</span>
+        <span class="bounded">3 rows</span></h3></div>
+      <div class="panel-body">
+        <div id="quota"></div>
+        <div class="q-legend">
+          <span><span class="sw" style="background:#337ab7"></span>Running instances</span>
+          <span><span class="sw" style="background:#999"></span>Shut off</span>
+          <span><span class="sw" style="background:#d9534f"></span>Error</span>
+        </div>
+        <p class="help-block-sm" style="margin:10px 0 0">The forecast extends the trend of the last 30 days. Shut-off and errored instances still count against your quota.</p>
+      </div>
+    </div>
+
+    <div class="row">
+      <!-- Trend -->
+      <div class="col-md-7"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title" style="display:inline-block"><i class="fa fa-line-chart"></i> Quota usage over time</h3>
+          <div class="btn-group btn-group-xs pull-right" id="trend-res">
+            <button class="btn btn-default active" data-res="cores">vCPUs</button><button class="btn btn-default" data-res="ram">RAM</button><button class="btn btn-default" data-res="instances">Instances</button>
+          </div></div>
+        <div class="panel-body">
+          <div id="trend-legend"></div>
+          <div class="chart-box"><canvas id="trend"></canvas></div>
+          <p class="help-block-sm" id="trend-note" style="margin:8px 0 0"></p>
+        </div></div></div>
+      <!-- Idle holders -->
+      <div class="col-md-5"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-pause-circle"></i> Holding quota without running <span class="bounded">max 10 rows</span></h3></div>
+        <div id="idle"></div>
+      </div></div>
+    </div>
+
+    <!-- Rightsizing -->
+    <div class="panel panel-default" id="rs-panel">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-balance-scale"></i> Allocated vs used (rightsizing) <span class="bounded">max 25 rows</span></h3></div>
+      <div class="panel-body" style="padding-bottom:0">
+        <p id="rs-summary" style="font-size:14px"></p>
+        <div class="btn-group btn-group-sm" id="rs-filter" style="margin-bottom:10px"></div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover tbl" style="margin-bottom:0">
+          <thead><tr><th class="caret-cell"></th><th>Instance</th><th>Flavor</th><th>CPU used ÷ vCPUs</th><th>Memory used ÷ flavor RAM</th>
+            <th>Root disk used</th><th>Assessment</th><th>CPU, last 7 days</th></tr></thead>
+          <tbody id="rs-rows"></tbody>
+        </table>
+      </div>
+      <div class="panel-footer help-block-sm"><i class="fa fa-info-circle"></i> Running instances only, sorted by how far they are from their flavor. Click a row for the trend charts.</div>
+    </div>
+
+    <!-- Instance health (project-scoped) -->
+    <div class="panel panel-default" id="ih-panel">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-bell"></i> Instances needing attention <span class="bounded">max 25 rows</span></h3></div>
+      <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+        <thead><tr><th>Severity</th><th>Instance</th><th>Status</th><th>Issues</th><th>What to do</th></tr></thead>
+        <tbody id="ih-rows"></tbody></table></div>
+      <div class="panel-footer help-block-sm"><i class="fa fa-info-circle"></i> Same checks as the admin Instance Health panel, limited to this project. Symptoms use the last 5 minutes.</div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('how').classList.toggle('hidden')">
+        <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+      <div class="panel-body hidden" id="how">
+        <table class="thr-table help-block-sm" style="color:#333">
+          <tr><th>Item</th><th>Source / query</th><th>Rule</th></tr>
+          <tr><td>Quota rows</td><td>Compute API (<code>os-limits</code>, server list)</td><td>Warning ≥ 75%, critical ≥ 90%</td></tr>
+          <tr><td>Forecast</td><td><code>predict_linear(sum(ceilometer_vcpus)[30d:1h], …)</code></td><td>Needs 7 days of history</td></tr>
+          <tr><td>CPU used ÷ vCPUs</td><td><code>rate(ceilometer_cpu[5m]) / 1e9 / ceilometer_vcpus</code></td><td>High: 7-day average ≥ 80%. Low: 7-day 95th percentile &lt; 10%</td></tr>
+          <tr><td>Memory used ÷ flavor RAM</td><td><code>ceilometer_memory_usage / ceilometer_memory</code></td><td>High: ≥ 90% or any swap. Low: &lt; 30%</td></tr>
+          <tr><td>Assessment</td><td>CPU and memory together</td><td>Any high → <em>Undersized</em> | both low → <em>Oversized</em> | otherwise <em>Right-sized</em>. Under 7 days of data → marked <em>provisional</em></td></tr>
+          <tr><td>Symptoms</td><td>As in admin Instance Health</td><td>CPU wait ≥ 5% / ≥ 20%, swap &gt; 0, disk latency ≥ 20 / 100 ms, drops &gt; 0</td></tr>
+        </table>
+        <p class="help-block-sm" style="margin-top:8px">Thresholds can be changed by the operator in <code>local_settings</code> (<code>GRIAN_PLUGIN['project_thresholds']</code>).</p>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="project-demo-data.js"></script>
+<script src="project-common.js"></script>
+<script>
+chrome('compute');
+let D, scn, range = '24h', res = 'cores', rsFilter = null, open = new Set();
+const RANGE = { '6h': [72, 300], '24h': [96, 900], '7d': [84, 7200], '30d': [90, 28800] };
+
+// Build one model for both data sets so the rendering code is shared.
+function modelDemo() {
+  const grid = demoGrid();
+  const servers = DEMO.servers.map(s => {
+    if (s.status !== 'ACTIVE') return { ...s, since: '7 h' };
+    const cpu = demoSeries('cpu_cores', s.name, grid), mem = demoSeries('mem_used_mib', s.name, grid), wait = demoSeries('cpu_wait_cores', s.name, grid);
+    return { ...s, cpuSeries: cpu.map(v => v == null ? null : v / s.vcpus), memSeries: mem, cpu: avg(cpu) / s.vcpus, cpuP95: Math.max(...cpu.filter(v => v != null)) / s.vcpus,
+      mem: last(mem) / s.ram_mib, memMib: last(mem), swap: 0, cpuWait: last(wait) / s.vcpus, diskUsed: s.disk_used_b / s.disk_cap_b,
+      // Latency per request is noise when the disk barely writes; only use it with real write activity (> 1 MB/s).
+      lat: last(demoSeries('disk_write_Bps', s.name, grid)) > 1048576 ? last(demoSeries('disk_write_lat_ms', s.name, grid)) : null, drops: 0 };
+  });
+  const q = DEMO.quota;
+  return { name: DEMO.project.name, real: true, hours: 9, grid, servers,
+    limits: { instances: q.instances[1], cores: q.cores[1], ram_mib: q.ram_mib[1] },
+    novaUsed: { instances: q.instances[0], cores: q.cores[0], ram_mib: q.ram_mib[0] },
+    trend: { cores: demoSeries('proj_vcpus', 'total', grid), ram: demoSeries('proj_ram_mib', 'total', grid).map(v => v == null ? null : v / 1024),
+             instances: demoSeries('proj_vcpus', 'total', grid).map(v => v == null ? null : 2) } };
+}
+function modelSample() {
+  const servers = SAMPLE.servers.map(s => s.status !== 'ACTIVE' ? { ...s, since: s.since + ' days' } : { ...s, cpuP95: Math.min(1, s.cpu * 1.6 + .01),
+    memMib: s.mem * s.ram_mib, lat: s.name === 'db-01' ? 34 : 2 + rnd() * 4, drops: 0 });
+  const sum = k => servers.reduce((a, s) => a + s[k], 0);
+  return { name: SAMPLE.project.name, real: false, hours: 30 * 24, servers,
+    limits: { instances: SAMPLE.quotaLimits.instances, cores: SAMPLE.quotaLimits.cores, ram_mib: SAMPLE.quotaLimits.ram_mib },
+    novaUsed: { instances: servers.length, cores: sum('vcpus'), ram_mib: sum('ram_mib') } };
+}
+
+function assess(s) {
+  const cpuHi = s.cpu >= .8, cpuLo = s.cpuP95 < .1, memHi = s.mem >= .9 || s.swap > 0, memLo = s.mem < .3;
+  const notes = [];
+  if (cpuHi) notes.push('CPU busy'); if (memHi) notes.push(s.swap > 0 ? 'swapping' : 'memory full');
+  if (!cpuHi && !memHi && memLo && !cpuLo) notes.push('memory mostly unused');
+  const k = cpuHi || memHi ? 'under' : cpuLo && memLo ? 'over' : 'ok';
+  return { k, notes };
+}
+const ASSESS = { under: ['tag-crit', 'arrow-up', 'Undersized'], over: ['tag-blue', 'arrow-down', 'Oversized'], ok: ['tag-ok', 'check', 'Right-sized'] };
+const ratioBar = (r, hi, lo) => `<span class="ratio ${r >= hi ? 'crit' : r < lo ? 'low' : ''}"><span style="width:${Math.min(100, r * 100)}%"></span></span>`;
+
+function symptoms(s) {
+  const out = [];
+  if (s.status === 'ERROR') out.push([3, 'ERROR state', `Fault: ${s.fault} Delete it to free its quota, or rebuild it with a smaller flavor.`]);
+  if (scn === 'error' || s.status !== 'ACTIVE' || !s.cpuSeries && D.real) return out;
+  const w = s.cpuWait * 100;
+  if (w >= 20) out.push([3, `CPU wait ${w.toFixed(0)}%`, '']); else if (w >= 5) out.push([2, `CPU wait ${w.toFixed(0)}%`, '']);
+  if (s.swap > 0) out.push([2, `swap ${s.swap} MB/s`, '']);
+  if (s.lat >= 100) out.push([3, `disk latency ${s.lat.toFixed(0)} ms`, '']); else if (s.lat >= 20) out.push([2, `disk latency ${s.lat.toFixed(0)} ms`, '']);
+  return out;
+}
+function advice(issues) {
+  const t = issues.map(i => i[1]).join(' ');
+  if (/ERROR/.test(t)) return issues[0][2];
+  if (/CPU wait/.test(t)) return 'The instance waits for physical CPU on its host. This comes from the host, not your workload. If it lasts, tell your operator and give them the instance ID.';
+  if (/swap/.test(t)) return 'The guest is short of memory. Resize to a flavor with more RAM.';
+  if (/disk latency/.test(t)) return 'Disk requests are slow. Check the I/O inside the guest; if it is low, tell your operator.';
+  return '';
+}
+
+function render() {
+  resetCharts();
+  const m = D, err = scn === 'error';
+  document.getElementById('proj').textContent = `project ${m.name}`;
+  document.getElementById('err').style.display = err ? '' : 'none';
+  const hist = document.getElementById('history');
+  hist.style.display = m.real ? '' : 'none';
+  hist.innerHTML = '<i class="fa fa-hourglass-half"></i> <strong>About 9 hours of history.</strong> The instances in this project were created at about 11:00 today, so 7-day assessments are provisional and there is no forecast yet.';
+
+  // Cards
+  const running = m.servers.filter(s => s.status === 'ACTIVE'), idle = m.servers.filter(s => s.status !== 'ACTIVE');
+  const idleCores = idle.reduce((a, s) => a + s.vcpus, 0), idleRam = idle.reduce((a, s) => a + s.ram_mib, 0);
+  const pc = pct(m.novaUsed.cores, m.limits.cores), pr = pct(m.novaUsed.ram_mib, m.limits.ram_mib), pi = pct(m.novaUsed.instances, m.limits.instances);
+  const worst = Math.max(pc, pr, pi);
+  document.getElementById('cards').innerHTML =
+    card(levelCls(worst), 'pie-chart', `${worst}%`, 'Highest quota use', pc === worst ? 'vCPUs' : pr === worst ? `RAM (${fmtMiB(m.novaUsed.ram_mib)} of ${fmtMiB(m.limits.ram_mib)})` : 'instances') +
+    card('panel-primary', 'desktop', `${running.length}<small> / ${m.servers.length}</small>`, 'Instances running', idle.length ? `${idle.length} not running` : 'all running') +
+    card(idleRam ? (pct(idleRam, m.limits.ram_mib) >= 25 ? 'panel-red' : 'panel-yellow') : 'panel-green', 'pause-circle',
+      idleRam ? fmtMiB(idleRam) : '0', 'RAM quota held by idle instances', idleRam ? `${idleCores} vCPU | ${idle.length} instance${idle.length > 1 ? 's' : ''} | ${pct(idleRam, m.limits.ram_mib)}% of your RAM quota` : 'none') +
+    (err ? card('panel-grey', 'balance-scale', '?', 'Instances to resize', 'metrics unavailable') : (() => {
+      const a = running.map(assess); const u = a.filter(x => x.k === 'under').length, o = a.filter(x => x.k === 'over').length;
+      return card(u ? 'panel-yellow' : 'panel-green', 'balance-scale', u + o, 'Instances to resize', `${u} undersized | ${o} oversized${m.real ? ' (provisional)' : ''}`);
+    })());
+
+  // Quota rows
+  const segs = (key, f) => [
+    { v: running.reduce((a, s) => a + f(s), 0), color: C.blue, label: 'Running' },
+    { v: idle.filter(s => s.status === 'SHUTOFF').reduce((a, s) => a + f(s), 0), color: C.grey, label: 'Shut off' },
+    { v: idle.filter(s => s.status === 'ERROR').reduce((a, s) => a + f(s), 0), color: C.crit, label: 'Error' }];
+  const fc = days => fcText(days, !m.real);
+  document.getElementById('quota').innerHTML =
+    quotaRow('Instances', segs('i', () => 1), m.limits.instances, v => v, fc(m.real ? 0 : 41)) +
+    quotaRow('vCPUs', segs('c', s => s.vcpus), m.limits.cores, v => v, fc(m.real ? 0 : 24)) +
+    quotaRow('RAM', segs('r', s => s.ram_mib), m.limits.ram_mib, fmtMiB, fc(m.real ? 0 : 33));
+
+  // Trend
+  const [n, step] = RANGE[range];
+  let labels, used, unitFmt, limit, extra = '';
+  if (m.real) {
+    const g = m.grid, take = range === '6h' ? 73 : g.length;
+    labels = g.slice(-take).map(clockLabel); used = m.trend[res].slice(-take);
+    if (range !== '6h' && range !== '24h') extra = ' Only about 9 hours of data exist, so longer ranges show the same points.';
+  } else {
+    const days = range === '30d' ? 30 : range === '7d' ? 7 : 1;
+    labels = Array.from({ length: n }, (_, i) => { const t = Date.now() / 1000 - (n - 1 - i) * step; return days > 1 ? dayLabel(t) : clockLabel(t); });
+    const nowRunning = { cores: running.reduce((a, s) => a + s.vcpus, 0), ram: running.reduce((a, s) => a + s.ram_mib, 0) / 1024, instances: running.length }[res];
+    used = noisy(nowRunning, n, .01, days === 30 ? .27 : days === 7 ? .06 : 0).map(v => res === 'instances' || res === 'cores' ? Math.round(v) : +v.toFixed(1));
+    used[n - 1] = nowRunning;
+  }
+  limit = { cores: m.limits.cores, ram: m.limits.ram_mib / 1024, instances: m.limits.instances }[res];
+  const nova = { cores: m.novaUsed.cores, ram: m.novaUsed.ram_mib / 1024, instances: m.novaUsed.instances }[res];
+  unitFmt = res === 'ram' ? (v => `${+v.toFixed(1)} GB`) : (v => `${Math.round(v)}`);
+  const lbl = { cores: 'vCPUs', ram: 'RAM', instances: 'Instances' }[res];
+  document.getElementById('trend-legend').innerHTML = legend([[`${lbl} of running instances (metrics)`, C.blue], ['Counted by the quota now (Compute API)', C.crit, true], ['Quota limit', C.grey, true]]);
+  if (!err) lineChart(document.getElementById('trend'), labels, [
+    { label: `${lbl}, running instances`, data: used, borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' },
+    refLine('Counted by the quota now', nova, labels.length, C.crit), refLine('Quota limit', limit, labels.length)], { tickFmt: unitFmt, max: limit * 1.1 });
+  const usedNow = last(used) ?? 0, gap = nova - usedNow;
+  document.getElementById('trend-note').innerHTML = err ? '<span class="text-danger">Trend unavailable: no metrics.</span>' :
+    (gap > 0 ? `<i class="fa fa-info-circle"></i> The quota counts <strong>${unitFmt(nova)}</strong>, but running instances use <strong>${unitFmt(usedNow)}</strong>. The difference (${unitFmt(gap)}) is held by instances that aren't running; see the list on the right.` : '') + extra;
+
+  // Idle holders
+  document.getElementById('idle').innerHTML = idle.length ? `<table class="table tbl" style="margin-bottom:0"><thead><tr><th>Instance</th><th>Status</th><th class="text-right">Holds</th><th></th></tr></thead><tbody>` +
+    idle.sort((a, b) => b.ram_mib - a.ram_mib).map(s => `<tr><td><a class="tbl-link"><strong>${s.name}</strong></a><br><small class="text-muted">${s.flavor} | for ${s.since}</small></td>
+      <td>${statusText(s.status)}${s.fault ? `<br><small class="text-muted">${s.fault}</small>` : ''}</td>
+      <td class="text-right">${s.vcpus} vCPU<br>${fmtMiB(s.ram_mib)} <small class="text-muted">(${pct(s.ram_mib, m.limits.ram_mib)}% of RAM quota)</small></td>
+      <td class="text-right"><a class="btn btn-xs btn-default" title="Opens Project → Compute → Instances">${s.status === 'ERROR' ? 'Delete…' : 'Manage…'}</a></td></tr>`).join('') +
+    `</tbody></table><div class="panel-footer help-block-sm"><i class="fa fa-info-circle"></i> These count against your quota but do no work. Deleting them, or shelving shut-off ones, frees the quota.</div>`
+    : '<div class="panel-body empty-state"><i class="fa fa-check-circle text-success"></i>Every instance that holds quota is running.</div>';
+
+  // Rightsizing
+  const rsPanel = document.getElementById('rs-panel');
+  if (err) { document.getElementById('rs-summary').innerHTML = '<span class="text-danger"><i class="fa fa-exclamation-circle"></i> Unavailable: no metrics.</span>'; document.getElementById('rs-rows').innerHTML = ''; document.getElementById('rs-filter').innerHTML = ''; }
+  else {
+    const rows = running.map(s => ({ s, a: assess(s) }));
+    const usedCores = running.reduce((a, s) => a + s.cpu * s.vcpus, 0), heldCores = running.reduce((a, s) => a + s.vcpus, 0);
+    const usedMem = running.reduce((a, s) => a + s.memMib, 0), heldMem = running.reduce((a, s) => a + s.ram_mib, 0);
+    document.getElementById('rs-summary').innerHTML = `Running instances use <strong>${usedCores.toFixed(1)} of the ${heldCores} vCPUs</strong> they hold (${pct(usedCores, heldCores)}%)
+      and <strong>${fmtMiB(usedMem)} of ${fmtMiB(heldMem)} RAM</strong> (${pct(usedMem, heldMem)}%).`;
+    const cnt = k => rows.filter(r => r.a.k === k).length;
+    document.getElementById('rs-filter').innerHTML = [[null, 'All', rows.length], ['under', 'Undersized', cnt('under')], ['over', 'Oversized', cnt('over')], ['ok', 'Right-sized', cnt('ok')]]
+      .map(([k, t, c]) => `<button class="btn btn-default ${rsFilter === k ? 'active' : ''}" data-rs="${k}">${t} <span class="badge">${c}</span></button>`).join('');
+    const order = { under: 0, over: 1, ok: 2 };
+    const list = rows.filter(r => !rsFilter || r.a.k === rsFilter).sort((a, b) => order[a.a.k] - order[b.a.k] || b.s.cpu - a.s.cpu).slice(0, 25);
+    document.getElementById('rs-rows').innerHTML = list.map(({ s, a }, i) => {
+      const A = ASSESS[a.k], isOpen = open.has(s.name);
+      return `<tr class="row-main" data-id="${s.name}"><td class="caret-cell"><i class="fa fa-caret-${isOpen ? 'down' : 'right'}"></i></td>
+        <td><a class="tbl-link" href="project-instance-metrics.html#${s.name}" onclick="event.stopPropagation()"><strong>${s.name}</strong></a></td>
+        <td>${s.flavor}<br><small class="text-muted">${s.vcpus} vCPU | ${fmtMiB(s.ram_mib)}</small></td>
+        <td>${ratioBar(s.cpu, .8, .1)}${(s.cpu * s.vcpus).toFixed(1)} of ${s.vcpus} <small class="text-muted">(${pct(s.cpu, 1)}%)</small></td>
+        <td>${ratioBar(s.mem, .9, .3)}${fmtMiB(s.memMib)} of ${fmtMiB(s.ram_mib)} <small class="text-muted">(${pct(s.mem, 1)}%)</small>${s.swap ? ' <span class="tag tag-warn">swap</span>' : ''}</td>
+        <td>${pct(s.diskUsed, 1)}% <small class="text-muted">of ${s.disk_gb} GB</small></td>
+        <td><span class="tag ${A[0]}"><i class="fa fa-${A[1]}"></i> ${A[2]}</span>${m.real ? '<br><small class="text-muted">provisional | 9 h of data</small>' : ''}${a.notes.length ? `<br><small class="text-muted">${a.notes.join(', ')}</small>` : ''}</td>
+        <td><canvas class="spark" width="110" height="28" id="sp-${i}"></canvas></td></tr>` +
+        (isOpen ? `<tr class="detail"><td></td><td colspan="7">${rsDetail(s, a, i)}</td></tr>` : '');
+    }).join('') || '<tr><td colspan="8" class="text-center text-muted" style="padding:20px">No instances in this group.</td></tr>';
+    list.forEach(({ s }, i) => {
+      spark(document.getElementById('sp-' + i), s.cpuSeries ? s.cpuSeries.slice(-84) : noisy(s.cpu, 84, .15), s.cpu >= .8 ? C.crit : C.blue, 1);
+      if (open.has(s.name)) rsCharts(s, i);
+    });
+  }
+
+  // Instance health
+  const ih = m.servers.map(s => ({ s, iss: symptoms(s) })).filter(x => x.iss.length).sort((a, b) => Math.max(...b.iss.map(i => i[0])) - Math.max(...a.iss.map(i => i[0])));
+  document.getElementById('ih-rows').innerHTML = ih.length ? ih.map(({ s, iss }) => {
+    const sev = Math.max(...iss.map(i => i[0]));
+    return `<tr class="${sev === 3 ? 'danger' : 'warning'}"><td>${badge(sev)}</td><td><a class="tbl-link" href="project-instance-metrics.html#${s.name}"><strong>${s.name}</strong></a><br><small class="text-muted">${s.id.slice(0, 8)}…</small></td>
+      <td>${statusText(s.status)}</td><td>${iss.map(i => `<span class="tag tag-${i[0] === 3 ? 'crit' : 'warn'}">${i[1]}</span>`).join('')}</td><td class="help-block-sm" style="color:#333;max-width:420px">${advice(iss)}</td></tr>`;
+  }).join('') : '<tr><td colspan="5" class="text-center text-muted" style="padding:20px"><i class="fa fa-check-circle text-success"></i> No instance in this project needs attention.</td></tr>';
+}
+
+function rsDetail(s, a, i) {
+  const hint = a.k === 'under' ? (s.swap || s.mem >= .9 ? 'Resize to a flavor with more RAM.' : `CPU averages ${pct(s.cpu, 1)}% of its ${s.vcpus} vCPUs. Resize to a flavor with more vCPUs, or spread the load over more instances.`)
+    : a.k === 'over' ? `CPU peaks at ${pct(s.cpuP95, 1)}% and memory stays at ${pct(s.mem, 1)}%. A smaller flavor would free quota${s.vcpus > 1 ? ` (up to ${s.vcpus - 1} vCPU)` : ''}.`
+    : a.notes.length ? 'CPU fits the flavor. Memory is mostly unused, but this is already a small flavor.' : 'The flavor fits the workload.';
+  return `<div class="row"><div class="col-md-6"><strong class="help-block-sm" style="color:#333">CPU used (vCPUs)</strong>
+    ${legend([['Used', C.blue], ['vCPUs in flavor', C.grey, true]])}<div class="chart-box sm"><canvas id="rc-${i}"></canvas></div></div>
+    <div class="col-md-6"><strong class="help-block-sm" style="color:#333">Memory used</strong>
+    ${legend([['Used', C.blue], ['Flavor RAM', C.grey, true]])}<div class="chart-box sm"><canvas id="rm-${i}"></canvas></div></div></div>
+    <p style="margin:8px 0 2px"><i class="fa fa-lightbulb-o"></i> ${hint}</p>
+    <p class="help-block-sm"><a href="project-instance-metrics.html#${s.name}"><i class="fa fa-line-chart"></i> All metrics for ${s.name}</a> | <a><i class="fa fa-arrows-alt"></i> Resize instance…</a> (Project → Compute → Instances)</p>`;
+}
+function rsCharts(s, i) {
+  let labels, cpu, mem;
+  if (D.real) { const g = D.grid; labels = g.map(clockLabel); cpu = s.cpuSeries.map(v => v == null ? null : +(v * s.vcpus).toFixed(2)); mem = s.memSeries; }
+  else { const [n, step] = RANGE[range]; labels = Array.from({ length: n }, (_, k) => clockLabel(Date.now() / 1000 - (n - 1 - k) * step)); cpu = noisy(s.cpu * s.vcpus, n, .15); mem = noisy(s.memMib, n, .03); }
+  lineChart(document.getElementById('rc-' + i), labels, [{ label: 'CPU used', data: cpu, borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' }, refLine('vCPUs', s.vcpus, labels.length)], { max: s.vcpus * 1.1, tickFmt: v => `${+v.toFixed(1)}` });
+  lineChart(document.getElementById('rm-' + i), labels, [{ label: 'Memory used', data: mem, borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' }, refLine('Flavor RAM', s.ram_mib, labels.length)], { max: s.ram_mib * 1.1, tickFmt: fmtMiB });
+}
+
+scenarios(k => { scn = k; D = k === 'demo' ? modelDemo() : modelSample(); rsFilter = null; open.clear(); render(); });
+document.getElementById('range').onclick = e => { const b = e.target.closest('button'); if (!b) return; range = b.dataset.range;
+  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('active', x === b)); render(); };
+document.getElementById('trend-res').onclick = e => { const b = e.target.closest('button'); if (!b) return; res = b.dataset.res;
+  document.querySelectorAll('#trend-res button').forEach(x => x.classList.toggle('active', x === b)); render(); };
+document.addEventListener('click', e => {
+  const f = e.target.closest('[data-rs]'); if (f) { rsFilter = f.dataset.rs === 'null' ? null : f.dataset.rs; return render(); }
+  const row = e.target.closest('#rs-rows tr.row-main'); if (row) { const id = row.dataset.id; open.has(id) ? open.delete(id) : open.add(id); render(); }
+});
+</script>
+</body>
+</html>

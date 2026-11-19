@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Admin → Telemetry → Top Consumers – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="project-common.css">
+<style>
+  .share { display: inline-block; width: 160px; height: 12px; background: #eee; border-radius: 4px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
+  .share > span { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+  .rank { color: #999; width: 28px; }
+</style>
+</head>
+<body>
+<div class="hz-topbar" id="topbar"></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs" id="sidebar"></div>
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong> | Data:
+      <button class="btn btn-xs btn-default active" data-scn="demo">DevStack cloud (real, 2026-11-18)</button>
+      <button class="btn btn-xs btn-default" data-scn="sample">Sample: larger cloud (12 projects)</button>
+      <span class="mock-note">The real data set is read as admin through Aetos: 2 projects with running instances. Only the CPU history was captured for it; other resources show current values. The sample is invented.</span>
+    </div>
+
+    <div class="page-header"><h1>Top Consumers</h1></div>
+
+    <div class="row toolbar">
+      <div class="col-sm-9">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Resource" id="res">
+          <button class="btn btn-default active" data-res="cpu"><i class="fa fa-microchip"></i> CPU</button>
+          <button class="btn btn-default" data-res="mem"><i class="fa fa-server"></i> Memory</button>
+          <button class="btn btn-default" data-res="disk"><i class="fa fa-hdd-o"></i> Disk I/O</button>
+          <button class="btn btn-default" data-res="net"><i class="fa fa-exchange"></i> Network</button>
+        </div>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Group by" id="by" style="margin-left:10px">
+          <button class="btn btn-default active" data-by="project">By project</button>
+          <button class="btn btn-default" data-by="instance">By instance</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px">Current values use the last 5 minutes.</span>
+      </div>
+      <div class="col-sm-3 text-right refresh-info"><i class="fa fa-refresh"></i> Auto-refresh every 60s</div>
+    </div>
+
+    <div class="row" id="cards"></div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-trophy"></i> <span id="t-title"></span> <span class="bounded">top 10</span></h3></div>
+      <div class="table-responsive"><table class="table table-hover tbl" style="margin-bottom:0">
+        <thead id="t-head"></thead><tbody id="t-rows"></tbody></table></div>
+      <div class="panel-footer help-block-sm" id="t-foot"></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-area-chart"></i> <span id="c-title"></span> <span class="bounded">top 5 + other</span></h3></div>
+      <div class="panel-body"><div id="c-legend"></div><div class="chart-box"><canvas id="chart"></canvas></div>
+        <p class="help-block-sm" id="c-note" style="margin:8px 0 0"></p></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('how').classList.toggle('hidden')">
+        <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+      <div class="panel-body hidden" id="how">
+        <table class="thr-table help-block-sm" style="color:#333">
+          <tr><th>Resource</th><th>Query (per project; per instance drops the <code>sum by</code>)</th></tr>
+          <tr><td>CPU</td><td><code>topk(10, sum by (project) (rate(ceilometer_cpu{…}[5m])) / 1e9)</code>: cores in use. Allocated: <code>sum by (project) (ceilometer_vcpus{…})</code></td></tr>
+          <tr><td>Memory</td><td><code>sum by (project) (ceilometer_memory_usage{…})</code>. Allocated: <code>ceilometer_memory</code> (flavor RAM)</td></tr>
+          <tr><td>Disk I/O</td><td><code>rate(ceilometer_disk_device_read_bytes[5m])</code> + <code>…write_bytes</code></td></tr>
+          <tr><td>Network</td><td><code>rate(ceilometer_network_incoming_bytes[5m])</code> + <code>…outgoing_bytes</code></td></tr>
+        </table>
+        <p class="help-block-sm" style="margin-top:8px"><code>{…}</code> is <code>resource_name=~".+:instance-.+"</code>: only polled samples, so instances aren't counted twice. Metrics carry project IDs; names come from Keystone (cached).
+          "Allocated" counts running instances only: there is no hypervisor capacity in Ceilometer, so the share is of what is in use, not of the cloud's size (Placement would be needed for that).</p>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="project-demo-data.js"></script>
+<script src="project-common.js"></script>
+<script src="admin-demo-data.js"></script>
+<script src="admin-common.js"></script>
+<script>
+adminChrome('top');
+let scn, res = 'cpu', by = 'project', M;
+const RES = {
+  cpu: { t: 'CPU', unit: 'cores', fmt: v => `${v.toFixed(v < 10 ? 2 : 0)} cores`, alloc: 'vCPUs', allocFmt: v => `${Math.round(v)} vCPU` },
+  mem: { t: 'Memory', fmt: v => fmtMiB(v), alloc: 'Flavor RAM', allocFmt: v => fmtMiB(v) },
+  disk: { t: 'Disk I/O', fmt: v => fmtRate(v) },
+  net: { t: 'Network', fmt: v => fmtRate(v) },
+};
+
+function modelDemo() {
+  const P = ADM.proj, projects = Object.keys(P.proj_cpu_cores);
+  const projRows = projects.map(p => ({ name: p, cpu: P.proj_cpu_cores[p], cpuAlloc: P.proj_vcpus[p], mem: P.proj_mem_used[p], memAlloc: P.proj_mem_alloc[p],
+    disk: (P.proj_disk_r[p] || 0) + (P.proj_disk_w[p] || 0), net: (P.proj_net_in[p] || 0) + (P.proj_net_out[p] || 0),
+    instances: Object.values(ADM.inst_project).filter(x => x === p).length, hist: ADM.proj_cpu_24h[p] }));
+  const instRows = Object.keys(ADM.inst.inst_cpu).map(i => ({ name: i, project: ADM.inst_project[i], cpu: ADM.inst.inst_cpu[i], cpuAlloc: ADM.inst.inst_vcpus[i],
+    mem: ADM.inst.inst_mem[i], memAlloc: { 'grian-ih-cpu-1': 256, 'grian-ih-cpu-2': 256, 'grian-ih-disk': 512, 'grian-ih-idle': 256 }[i],
+    disk: ADM.inst.inst_disk_w[i], net: (ADM.ifaces.find(f => f.inst === i)?.in || 0) + (ADM.if_out[i] || 0) }));
+  return { real: true, projRows, instRows, labels: admLabels(ADM.proj_cpu_24h.admin), hosts: 1, idleProjects: ['alt_demo', 'service', 'invisible_to_admin'] };
+}
+function modelSample() {
+  const base = { 'ml-training': [180, 192, 1400e3, 9e6, 4e6], 'data-lake': [95, 160, 900e3, 140e6, 30e6], 'ci-runners': [70, 120, 300e3, 60e6, 12e6], 'web-shop': [10.3, 41, 26e3, 3e6, 2.6e6],
+    'erp': [22, 48, 180e3, 18e6, 5e6], 'analytics': [31, 64, 380e3, 75e6, 3e6], 'mobile-api': [14, 24, 60e3, 2e6, 9e6], 'staging': [3, 40, 90e3, 1e6, .5e6],
+    'monitoring': [6, 12, 40e3, 8e6, 1.5e6], 'backup': [2, 8, 16e3, 220e6, 40e6], 'sandbox': [.4, 30, 50e3, .1e6, .1e6], 'hr-portal': [1.1, 4, 8e3, .3e6, .4e6] };
+  const projRows = Object.entries(base).map(([p, [cpu, vc, mem, disk, net]]) => ({ name: p, cpu, cpuAlloc: vc, mem, memAlloc: vc * 8192, disk, net,
+    instances: Math.max(1, Math.round(vc / 4)), hist: null }));
+  const instRows = [];
+  projRows.forEach(p => { for (let i = 0; i < Math.min(6, p.instances); i++) { const f = (6 - i) / 21 * (p.instances > 6 ? 6 / p.instances * 3.5 : 1);
+    instRows.push({ name: `${p.name.split('-')[0]}-${String(i + 1).padStart(2, '0')}`, project: p.name, cpu: p.cpu * f, cpuAlloc: Math.max(1, Math.round(p.cpuAlloc * f)), mem: p.mem * f, memAlloc: p.memAlloc * f, disk: p.disk * f, net: p.net * f }); } });
+  return { real: false, projRows, instRows, labels: Array.from({ length: 96 }, (_, i) => clockLabel(Date.now() / 1000 - (95 - i) * 900)), hosts: 40, idleProjects: [] };
+}
+
+function render() {
+  resetCharts();
+  const m = M, R = RES[res], rows = by === 'project' ? m.projRows : m.instRows;
+  const tot = k => m.projRows.reduce((a, r) => a + (r[k] || 0), 0);
+  document.getElementById('cards').innerHTML =
+    card('panel-primary', 'microchip', `${tot('cpu').toFixed(1)}`, 'CPU cores in use', `of ${Math.round(tot('cpuAlloc'))} vCPUs allocated (${pct(tot('cpu'), tot('cpuAlloc'))}%)`) +
+    card('panel-primary', 'server', fmtMiB(tot('mem')), 'Memory in use', `of ${fmtMiB(tot('memAlloc'))} allocated (${pct(tot('mem'), tot('memAlloc'))}%)`) +
+    card('panel-primary', 'hdd-o', fmtRate(tot('disk')), 'Disk I/O', 'read + write, all instances') +
+    card('panel-primary', 'exchange', fmtRate(tot('net')), 'Network', 'in + out, all instances');
+
+  // Table
+  const total = rows.reduce((a, r) => a + (r[res] || 0), 0);
+  const sorted = [...rows].sort((a, b) => (b[res] || 0) - (a[res] || 0));
+  const top = sorted.slice(0, 10), top5 = sorted.slice(0, 5).map(r => r.name);
+  const color = name => top5.includes(name) ? CAT[top5.indexOf(name)] : OTHER;
+  document.getElementById('t-title').textContent = `${R.t}: top ${by === 'project' ? 'projects' : 'instances'}`;
+  const hasAlloc = !!R.alloc;
+  document.getElementById('t-head').innerHTML = `<tr><th class="rank">#</th><th>${by === 'project' ? 'Project' : 'Instance'}</th>${by === 'instance' ? '<th>Project</th>' : '<th class="text-right">Instances</th>'}
+    <th class="text-right">${R.t} now</th><th>Share of total in use</th>${hasAlloc ? `<th class="text-right">${R.alloc}</th><th>Used ÷ allocated</th>` : ''}${by === 'project' ? '<th>CPU, 24 h</th>' : ''}</tr>`;
+  document.getElementById('t-rows').innerHTML = top.map((r, i) => {
+    const sh = total ? (r[res] || 0) / total : 0, ua = hasAlloc ? r[res] / (res === 'cpu' ? r.cpuAlloc : r.memAlloc) : null;
+    return `<tr><td class="rank">${i + 1}</td>
+      <td><span class="sw" style="background:${color(r.name)}"></span><a class="tbl-link"><strong>${r.name}</strong></a></td>
+      ${by === 'instance' ? `<td>${r.project}</td>` : `<td class="text-right">${r.instances}</td>`}
+      <td class="text-right">${R.fmt(r[res] || 0)}</td>
+      <td><span class="share"><span style="width:${sh * 100}%;background:${color(r.name)}"></span></span>${Math.round(sh * 100)}%</td>
+      ${hasAlloc ? `<td class="text-right">${R.allocFmt(res === 'cpu' ? r.cpuAlloc : r.memAlloc)}</td><td><span class="ratio ${ua >= .8 ? 'crit' : ua < .1 ? 'low' : ''}"><span style="width:${Math.min(100, ua * 100)}%"></span></span>${Math.round(ua * 100)}%</td>` : ''}
+      ${by === 'project' ? `<td><canvas class="spark" width="110" height="28" id="sp-${i}"></canvas></td>` : ''}</tr>`;
+  }).join('');
+  if (by === 'project') top.forEach((r, i) => spark(document.getElementById('sp-' + i), r.hist ? admValues(r.hist) : noisy(r.cpu, 48, .15), color(r.name)));
+  document.getElementById('t-foot').innerHTML = `<i class="fa fa-info-circle"></i> ${rows.length} ${by === 'project' ? 'projects' : 'instances'} with running instances${rows.length > 10 ? `, top 10 shown` : ''}.` +
+    (m.idleProjects.length && by === 'project' ? ` Projects with nothing running are not listed (${m.idleProjects.join(', ')}).` : '') +
+    (hasAlloc ? ' Used ÷ allocated: red ≥ 80% (busy), pale &lt; 10% (mostly idle, see the project\'s rightsizing view).' : '') + ' Click a name to open its instances.';
+
+  // Chart: stacked top 5 + Other
+  document.getElementById('c-title').textContent = `${R.t} over the last 24 h, by ${by}`;
+  const n = m.labels.length, sets = [];
+  sorted.slice(0, 5).forEach((r, i) => {
+    let data;
+    if (m.real) data = res === 'cpu' && by === 'project' && r.hist ? admValues(r.hist) : null;
+    else data = noisy(r[res], n, .12).map((v, k) => r.name === 'ci-runners' ? v * (k % 32 < 10 ? 1.7 : .7) : v);
+    if (data) sets.push({ label: r.name, data, borderColor: CAT[i], backgroundColor: hexA(CAT[i], .55), fill: i ? '-1' : 'origin', borderWidth: 1, stack: 's' });
+  });
+  const rest = sorted.slice(5).reduce((a, r) => a + (r[res] || 0), 0);
+  if (!m.real && rest) sets.push({ label: 'Other', data: noisy(rest, n, .1), borderColor: OTHER, backgroundColor: hexA(OTHER, .45), fill: '-1', borderWidth: 1, stack: 's' });
+  document.getElementById('c-legend').innerHTML = legend(sets.map(s => [s.label, s.borderColor]));
+  if (sets.length) lineChart(document.getElementById('chart'), m.labels, sets, { stacked: true, tickFmt: v => R.fmt(v) });
+  document.getElementById('c-note').innerHTML = !sets.length ? '<span class="text-muted"><i class="fa fa-info-circle"></i> Mockup: the real snapshot only captured CPU history per project. The real page has this chart for every resource.</span>'
+    : m.real ? '<i class="fa fa-info-circle"></i> Both projects run a 4-vCPU busy-loop instance (grian-ih-cpu-1 and grian-ih-cpu-2) since about 11:00, so CPU is steady from then on.'
+    : '<i class="fa fa-info-circle"></i> Stacked: the top edge is the cloud total. ci-runners shows the typical saw-tooth of batch jobs.';
+}
+
+scenarios(k => { scn = k; M = k === 'demo' ? modelDemo() : modelSample(); render(); });
+const toggle = (id, set) => document.getElementById(id).onclick = e => { const b = e.target.closest('button'); if (!b) return; set(b);
+  document.querySelectorAll(`#${id} button`).forEach(x => x.classList.toggle('active', x === b)); render(); };
+toggle('res', b => res = b.dataset.res); toggle('by', b => by = b.dataset.by);
+</script>
+</body>
+</html>

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Project → Telemetry → Network – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 and htmx -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="project-common.css">
+</head>
+<body>
+<div class="hz-topbar" id="topbar"></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs" id="sidebar"></div>
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong> | Data:
+      <button class="btn btn-xs btn-default active" data-scn="demo">demo project (real, 2026-11-18)</button>
+      <button class="btn btn-xs btn-default" data-scn="healthy">Sample: healthy</button>
+      <button class="btn btn-xs btn-default" data-scn="outage">Sample: router-wide outage</button>
+      <button class="btn btn-xs btn-default" data-scn="single">Sample: one instance cut off</button>
+      <span class="mock-note">"demo project" uses real traffic read as demo/demo through Aetos and real Neutron state. The samples are invented. To reproduce the outage cases for real, see the user guide (port or router <code>--disable</code>).</span>
+    </div>
+
+    <div class="page-header"><h1>Network <small id="proj"></small></h1></div>
+
+    <div class="row toolbar">
+      <div class="col-sm-7">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Time range" id="range">
+          <button class="btn btn-default" data-range="1h">1h</button>
+          <button class="btn btn-default active" data-range="6h">6h</button>
+          <button class="btn btn-default" data-range="12h">12h</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px">Range for the traffic charts. Problems are always judged on the last 15 minutes.</span>
+      </div>
+      <div class="col-sm-5 text-right refresh-info"><i class="fa fa-refresh"></i> Auto-refresh every 30s | last updated <span>just now</span></div>
+    </div>
+
+    <div id="verdict"></div>
+    <div class="row" id="cards"></div>
+
+    <!-- By router / network -->
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-sitemap"></i> By router and network
+        <span class="src">Networking API + metrics</span><span class="bounded">your routers and networks</span></h3></div>
+      <div class="table-responsive"><table class="table tbl" style="margin-bottom:0">
+        <thead><tr><th>Router / network</th><th>Status in Neutron</th><th>Instances affected</th><th>Traffic now vs usual</th><th class="text-right">Drops + errors</th></tr></thead>
+        <tbody id="topo"></tbody></table></div>
+      <div class="panel-footer help-block-sm" id="topo-foot"></div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-8"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-exchange"></i> Project traffic</h3></div>
+        <div class="panel-body">
+          <div id="tr-legend"></div>
+          <div class="chart-box"><canvas id="traffic"></canvas></div>
+          <p class="help-block-sm" style="margin:8px 0 0">Sum over all your instances' network interfaces. Inbound is traffic received by your instances.</p>
+        </div></div></div>
+      <div class="col-md-4"><div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-pie-chart"></i> Network quota <span class="src">Networking API</span></h3></div>
+        <div class="panel-body" id="nquota" style="padding-top:5px"></div>
+      </div>
+      <div class="panel panel-default">
+        <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-globe"></i> Floating IPs</h3></div>
+        <div id="fips"></div>
+      </div></div>
+    </div>
+
+    <!-- Instances -->
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-desktop"></i> Instance interfaces <span class="bounded">max 25 rows</span></h3></div>
+      <div class="table-responsive"><table class="table table-hover tbl" style="margin-bottom:0">
+        <thead><tr><th>State</th><th>Instance</th><th>Network / IP</th><th>Port</th><th class="text-right">In</th><th class="text-right">Out</th><th>vs usual</th><th class="text-right">Drops + errors</th><th>Inbound packets, range</th></tr></thead>
+        <tbody id="ifs"></tbody></table></div>
+      <div class="panel-footer help-block-sm"><i class="fa fa-info-circle"></i> One row per network interface (Neutron port) of your running instances. Problems first.</div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading" style="cursor:pointer" onclick="document.getElementById('how').classList.toggle('hidden')">
+        <h3 class="panel-title"><i class="fa fa-sliders"></i> How this page is calculated <small class="text-muted">(click to expand)</small></h3></div>
+      <div class="panel-body hidden" id="how">
+        <table class="thr-table help-block-sm" style="color:#333">
+          <tr><th>Item</th><th>Source / query</th><th>Rule</th></tr>
+          <tr><td>Interface traffic</td><td><code>rate(ceilometer_network_{incoming,outgoing}_bytes[5m])</code></td><td>Matched to the Neutron port by tap name: <code>tap</code> + first 11 characters of the port ID</td></tr>
+          <tr><td>Quiet interface</td><td>inbound packets, last 15 min vs the same 15 min yesterday (or the last 6 h average if there is less than a day of history)</td><td>Warning below 10% of usual. Only judged when usual is at least 0.5 packets/s: below that, traffic is too bursty (the demo project sends about one packet every 20 s, so 5-minute rates swing between 0 and 0.1). A running instance whose CPU is normal but traffic stopped points to the network.</td></tr>
+          <tr><td>Drops and errors</td><td><code>rate(ceilometer_network_*_packets_{drop,error}[5m])</code>, each metric named explicitly</td><td>Warning &gt; 0, critical ≥ 10 packets/s</td></tr>
+          <tr><td>Resource state</td><td>Networking API: routers, ports, floating IPs</td><td>Anything not ACTIVE. OVN metadata ports (<code>device_owner=network:distributed</code>) are always DOWN and are ignored.</td></tr>
+          <tr><td>"Me or the cloud?"</td><td>Affected interfaces grouped by network and router</td><td>All instances behind one router affected → probably cloud side. One instance affected while its neighbours are fine → probably that instance.</td></tr>
+        </table>
+        <p class="help-block-sm" style="margin-top:8px">Project users can't see the health of the cloud's network services (agents, gateways). This page infers it from what your own resources show.</p>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="project-demo-data.js"></script>
+<script src="project-common.js"></script>
+<script>
+chrome('network');
+let D, scn, range = '6h';
+const OUT_AT = 0.8;   // samples: the outage starts at 80% of the range shown
+
+function modelDemo() {
+  const g = demoGrid();
+  const ifs = DEMO.servers.filter(s => s.port).map(s => {
+    const pin = demoSeries('net_in_pps', s.name, g), bin = demoSeries('net_in_Bps', s.name, g), bout = demoSeries('net_out_Bps', s.name, g);
+    const now = avg(pin.slice(-3)), usual = avg(pin.slice(-75, -3));
+    return { inst: s.name, network: s.network, ip: s.ip, port: s.port, portStatus: 'ACTIVE', in: last(bin), out: last(bout), now, usual,
+      drops: last(demoSeries('net_drop_err_pps', s.name, g)) || 0, pinSeries: pin, binSeries: bin, boutSeries: bout };
+  });
+  return { name: DEMO.project.name, real: true, grid: g, ifs, routers: DEMO.routers.map(r => ({ ...r })),
+    networks: DEMO.networks, fips: DEMO.floating_ips,
+    quota: { Ports: DEMO.quota.ports, Routers: DEMO.quota.routers, 'Floating IPs': DEMO.quota.floating_ips, 'Security groups': DEMO.quota.security_groups } };
+}
+function modelSample(kind) {
+  const nets = { frontend: '10.10.1', backend: '10.10.2', batch: '10.10.3' };
+  let k = 10;
+  const ifs = SAMPLE.servers.filter(s => s.status === 'ACTIVE').map(s => {
+    const pps = s.netIn / 900;
+    let now = pps * (0.85 + rnd() * .3), drops = 0;
+    const behindShop = s.network === 'frontend' || s.network === 'backend';
+    if (kind === 'outage' && behindShop) now = pps * .003;
+    if (kind === 'single' && s.name === 'api-02') now = 0;
+    if (kind !== 'healthy' && s.name === 'web-03') drops = 2.4;
+    return { inst: s.name, network: s.network, ip: `${nets[s.network]}.${k++}`, port: (0x1a2b3c00 + k * 977).toString(16).slice(0, 8), portStatus: 'ACTIVE',
+      in: s.netIn * now / pps, out: s.netOut * now / pps, now, usual: pps, drops, pps };
+  });
+  const networks = [
+    { name: 'frontend', status: 'ACTIVE', router: 'shop-router' }, { name: 'backend', status: 'ACTIVE', router: 'shop-router' }, { name: 'batch', status: 'ACTIVE', router: 'batch-router' }];
+  return { name: SAMPLE.project.name, real: false, ifs, routers: SAMPLE.routers.map(r => ({ ...r })), networks, fips: SAMPLE.floating_ips,
+    quota: { Ports: [24, 50], Routers: [2, 5], 'Floating IPs': [3, 10], 'Security groups': [4, 10] } };
+}
+
+const MIN_PPS = 0.5;   // below this "usual" rate, low-volume traffic is too bursty to judge (seen on the real demo project)
+const isQuiet = i => i.usual >= MIN_PPS && i.now < 0.1 * i.usual;
+const ifSev = i => isQuiet(i) ? 3 : i.drops >= 10 ? 3 : i.drops > 0 ? 2 : i.portStatus !== 'ACTIVE' ? 3 : 0;
+const pctUsual = i => i.usual >= MIN_PPS ? Math.round(100 * i.now / i.usual) : null;
+
+function verdict(m) {
+  const quiet = m.ifs.filter(isQuiet), drops = m.ifs.filter(i => i.drops > 0);
+  const badRes = [...m.routers.filter(r => r.status !== 'ACTIVE').map(r => `router ${r.name}`), ...m.fips.filter(f => f.status !== 'ACTIVE' && f.target).map(f => `floating IP ${f.ip}`)];
+  // group quiet interfaces by router
+  const byRouter = {};
+  m.networks.forEach(n => { const r = n.router; byRouter[r] = byRouter[r] || { total: 0, quiet: 0 }; m.ifs.filter(i => i.network === n.name).forEach(i => { byRouter[r].total++; if (isQuiet(i)) byRouter[r].quiet++; }); });
+  const wide = Object.entries(byRouter).find(([, v]) => v.total >= 2 && v.quiet === v.total);
+  if (wide) {
+    const [r, v] = wide;
+    return ['crit', 'exclamation-circle', `Likely a cloud network problem behind ${r}`,
+      `All ${v.total} instances behind <strong>${r}</strong> stopped receiving traffic at about <strong>${clockLabel(Date.now() / 1000 - (1 - OUT_AT) * 6 * 3600)}</strong>, while their CPU looks normal.
+       Neutron still reports the router as ACTIVE and nothing in your project changed, so the cause is probably outside your configuration.
+       <br><strong>What to do:</strong> contact your cloud operator. Give them the router name, the time it started and this page's link. Instances on other routers are not affected.`];
+  }
+  if (quiet.length) {
+    const i = quiet[0];
+    return ['warn', 'exclamation-triangle', `${i.inst} stopped receiving traffic; its neighbours are fine`,
+      `Other instances on <strong>${i.network}</strong> behind the same router are normal, so the network itself works.
+       <br><strong>Check first:</strong> recent security group changes, the instance's console (is the network interface up, is the service running?), and whether its port was disabled.`];
+  }
+  if (badRes.length) return ['warn', 'exclamation-triangle', `${badRes.length} network resource${badRes.length > 1 ? 's are' : ' is'} not active`, badRes.join(', ')];
+  if (drops.length) return ['warn', 'exclamation-triangle', `Packet drops or errors on ${drops.length} interface${drops.length > 1 ? 's' : ''}`,
+    'Traffic flows, but some packets are lost. Small numbers can come from bursts inside the guest; if it lasts or grows, check the instance and tell your operator.'];
+  return ['ok', 'check-circle', 'No network problems detected in your project', `Checked ${m.routers.length} router${m.routers.length > 1 ? 's' : ''} and ${m.ifs.length} instance interface${m.ifs.length > 1 ? 's' : ''}: all look normal.` +
+    (m.ifs.some(i => i.usual < MIN_PPS) ? ` <br><i class="fa fa-info-circle text-muted"></i> Traffic on ${m.ifs.every(i => i.usual < MIN_PPS) ? 'all your interfaces' : 'some interfaces'} is too low (under ${MIN_PPS} packets/s) to tell whether it stopped, so only drops, errors and resource states are checked there.` : '')];
+}
+
+function render() {
+  resetCharts();
+  const m = D;
+  document.getElementById('proj').textContent = `project ${m.name}`;
+  const [k, icon, title, text] = verdict(m);
+  document.getElementById('verdict').innerHTML = `<div class="verdict verdict-${k}"><h4><i class="fa fa-${icon} text-${k === 'ok' ? 'success' : k === 'warn' ? 'warning' : 'danger'}"></i> ${title}</h4><div>${text}</div></div>`;
+
+  const quiet = m.ifs.filter(isQuiet).length, drops = m.ifs.filter(i => i.drops > 0).length;
+  const badRes = m.routers.filter(r => r.status !== 'ACTIVE').length + m.fips.filter(f => f.status !== 'ACTIVE' && f.target).length;
+  const tin = m.ifs.reduce((a, i) => a + (i.in || 0), 0), tout = m.ifs.reduce((a, i) => a + (i.out || 0), 0);
+  document.getElementById('cards').innerHTML =
+    card(quiet ? (quiet > 1 ? 'panel-red' : 'panel-yellow') : 'panel-green', 'eye-slash', quiet, 'Instances gone quiet', quiet ? 'traffic far below usual' : m.ifs.every(i => i.usual < MIN_PPS) ? 'traffic too low to judge' : 'traffic as usual') +
+    card(drops ? 'panel-yellow' : 'panel-green', 'random', drops, 'Interfaces dropping packets', drops ? 'drops or errors in the last 5 min' : 'no drops or errors') +
+    card(badRes ? 'panel-yellow' : 'panel-green', 'sitemap', badRes, 'Routers / floating IPs not active', badRes ? 'see below' : `${m.routers.length} router${m.routers.length > 1 ? 's' : ''} | ${m.fips.length} floating IPs`) +
+    card('panel-primary', 'exchange', fmtRate(tin), 'Inbound now', `${fmtRate(tout)} outbound`);
+
+  // Topology table
+  let rows = '';
+  m.routers.forEach(r => {
+    const nets = m.networks.filter(n => n.router === r.name), ifs = m.ifs.filter(i => nets.some(n => n.name === i.network));
+    const q = ifs.filter(isQuiet).length, d = ifs.reduce((a, i) => a + i.drops, 0);
+    const nowSum = ifs.reduce((a, i) => a + i.now, 0), usualSum = ifs.reduce((a, i) => a + i.usual, 0);
+    const pr = ifs.every(i => i.usual >= MIN_PPS) && ifs.length ? Math.round(100 * nowSum / usualSum) : null;
+    rows += `<tr class="${q && q === ifs.length ? 'danger' : ''}"><td><i class="fa fa-arrows-alt text-muted"></i> <strong>${r.name}</strong> <small class="text-muted">gateway ${r.gateway}</small></td>
+      <td>${statusText(r.status)}</td><td>${q ? `<span class="text-danger"><strong>${q} of ${ifs.length}</strong></span>` : `0 of ${ifs.length}`}</td>
+      <td>${pr == null ? '<span class="text-muted">too little traffic</span>' : `${ratioBarU(pr)} ${pr}%`}</td><td class="text-right">${d ? d.toFixed(1) + ' pkt/s' : '0'}</td></tr>`;
+    nets.forEach(n => {
+      const nif = m.ifs.filter(i => i.network === n.name), nq = nif.filter(isQuiet).length;
+      const ns = nif.reduce((a, i) => a + i.now, 0), nu = nif.reduce((a, i) => a + i.usual, 0), np = nif.length && nif.every(i => i.usual >= MIN_PPS) ? Math.round(100 * ns / nu) : null;
+      const extra = n.other_project_ports ? ` <small class="text-muted" title="Neutron shows you every port on networks you own. Their traffic belongs to other projects and is not visible to you.">| ${n.other_project_ports} ports of other projects</small>` : '';
+      rows += `<tr><td style="padding-left:34px"><i class="fa fa-share-alt text-muted"></i> ${n.name} ${n.subnets ? `<small class="text-muted">${n.subnets[0]}</small>` : ''}${extra}</td>
+        <td>${statusText(n.status)}</td><td>${nq ? `<span class="text-danger">${nq} of ${nif.length}</span>` : `0 of ${nif.length}`}</td>
+        <td>${np == null ? '<span class="text-muted">—</span>' : `${ratioBarU(np)} ${np}%`}</td><td class="text-right">${nif.reduce((a, i) => a + i.drops, 0).toFixed(1).replace(/\.0$/, '')}</td></tr>`;
+    });
+  });
+  document.getElementById('topo').innerHTML = rows;
+  const meta = m.networks.reduce((a, n) => a + (n.metadata_ports_down || 0), 0);
+  document.getElementById('topo-foot').innerHTML = `<i class="fa fa-info-circle"></i> "Usual" = the same 15 minutes yesterday, or the last 6 hours if there is less history.` +
+    (meta ? ` ${meta} OVN metadata ports are DOWN by design and are not counted.` : '');
+
+  // Traffic chart
+  let labels, din, dout;
+  if (m.real) {
+    const take = { '1h': 13, '6h': 73, '12h': m.grid.length }[range];
+    labels = m.grid.slice(-take).map(clockLabel);
+    const sum = key => m.grid.slice(-take).map((_, j) => { const vals = m.ifs.map(i => i[key].slice(-take)[j]); return vals.every(v => v == null) ? null : vals.reduce((a, v) => a + (v || 0), 0); });
+    din = sum('binSeries'); dout = sum('boutSeries');
+  } else {
+    const n = { '1h': 12, '6h': 72, '12h': 144 }[range], step = { '1h': 300, '6h': 300, '12h': 300 }[range];
+    labels = Array.from({ length: n }, (_, j) => clockLabel(Date.now() / 1000 - (n - 1 - j) * step));
+    const baseIn = m.ifs.reduce((a, i) => a + i.usual * 900, 0), baseOut = baseIn * .8;
+    const nowIn = m.ifs.reduce((a, i) => a + i.in, 0), nowOut = m.ifs.reduce((a, i) => a + i.out, 0);
+    const cut = Math.floor(n * OUT_AT);
+    din = noisy(baseIn, n, .08).map((v, j) => scn === 'healthy' || j < cut ? v : nowIn * (0.9 + rnd() * .2));
+    dout = noisy(baseOut, n, .08).map((v, j) => scn === 'healthy' || j < cut ? v : nowOut * (0.9 + rnd() * .2));
+  }
+  document.getElementById('tr-legend').innerHTML = legend([['Inbound', C.blue], ['Outbound', C.mag]]);
+  lineChart(document.getElementById('traffic'), labels, [
+    { label: 'Inbound', data: din, borderColor: C.blue, backgroundColor: C.blueFill, fill: 'origin' },
+    { label: 'Outbound', data: dout, borderColor: C.mag }], { tickFmt: v => fmtRate(v) });
+
+  // Quota
+  document.getElementById('nquota').innerHTML = Object.entries(m.quota).map(([k, [u, l]]) => `<div style="margin-top:9px"><div class="clearfix"><strong>${k}</strong><span class="pull-right">${u} / ${l} <span class="text-muted">(${pct(u, l)}%)</span></span></div>
+    <div class="q-bar" style="display:flex;height:10px;background:#eee;border-radius:4px;overflow:hidden;margin-top:3px"><div style="width:${pct(u, l)}%;background:${pct(u, l) >= 90 ? C.crit : pct(u, l) >= 75 ? C.warn : C.blue}"></div></div></div>`).join('');
+
+  document.getElementById('fips').innerHTML = m.fips.length ? `<table class="table tbl" style="margin-bottom:0"><tbody>` + m.fips.map(f => `<tr><td><strong>${f.ip}</strong></td><td>${statusText(f.status)}</td>
+      <td class="help-block-sm" style="color:#333">${f.target ? `→ ${f.target}` : '<span class="text-muted">not associated</span>'}</td></tr>`).join('') + `</tbody></table>
+      <div class="panel-footer help-block-sm">An unassociated floating IP is DOWN by design, but still counts against your quota.</div>`
+    : '<div class="panel-body empty-state" style="padding:15px"><i class="fa fa-globe" style="font-size:2em"></i>No floating IPs. Instances are reachable only from inside the cloud.</div>';
+
+  // Interfaces table
+  const list = [...m.ifs].sort((a, b) => ifSev(b) - ifSev(a) || (b.in || 0) - (a.in || 0)).slice(0, 25);
+  document.getElementById('ifs').innerHTML = list.map((i, j) => {
+    const sev = ifSev(i), pu = pctUsual(i);
+    const tag = isQuiet(i) ? '<span class="tag tag-crit"><i class="fa fa-eye-slash"></i> Quiet</span>' : i.drops > 0 ? '<span class="tag tag-warn"><i class="fa fa-random"></i> Drops</span>' : '<span class="tag tag-ok"><i class="fa fa-check"></i> Normal</span>';
+    return `<tr class="${sev === 3 ? 'danger' : sev === 2 ? 'warning' : ''}"><td>${tag}</td><td><a class="tbl-link" href="project-instance-metrics.html#${i.inst}"><strong>${i.inst}</strong></a></td>
+      <td>${i.network}<br><small class="text-muted">${i.ip}</small></td><td><small><code>tap${i.port.slice(0, 8)}…</code></small><br>${statusText(i.portStatus)}</td>
+      <td class="text-right">${fmtRate(i.in)}</td><td class="text-right">${fmtRate(i.out)}</td><td>${pu == null ? '<span class="text-muted">too little traffic</span>' : `${ratioBarU(pu)} ${pu}%`}</td>
+      <td class="text-right">${i.drops ? i.drops + ' pkt/s' : '0'}</td><td><canvas class="spark" width="110" height="28" id="ns-${j}"></canvas></td></tr>`;
+  }).join('');
+  list.forEach((i, j) => {
+    const data = m.real ? i.pinSeries.slice(-84) : noisy(i.usual, 84, .1).map((v, x) => scn !== 'healthy' && x >= 84 * OUT_AT && isQuiet(i) ? i.now : v);
+    spark(document.getElementById('ns-' + j), data, isQuiet(i) ? C.crit : C.blue);
+  });
+}
+// "now vs usual" bar: 100% = usual. Below 10% red, below 50% amber.
+const ratioBarU = p => `<span class="ratio ${p < 10 ? 'crit' : p < 50 ? 'warn' : ''}" style="width:70px"><span style="width:${Math.min(100, p)}%"></span></span>`;
+
+scenarios(k => { scn = k; D = k === 'demo' ? modelDemo() : modelSample(k); render(); });
+document.getElementById('range').onclick = e => { const b = e.target.closest('button'); if (!b) return; range = b.dataset.range;
+  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('active', x === b)); render(); };
+</script>
+</body>
+</html>

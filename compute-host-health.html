@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP – Compute Host Health – Grian UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup only: Horizon ships Bootstrap 3 + Font Awesome 4; Grian vendors Chart.js 4.4.1 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<style>
+  body { background: #f5f5f5; font-size: 13px; }
+  /* --- fake Horizon chrome (not part of the panel) --- */
+  .hz-topbar { background: #2b2b2b; color: #ddd; height: 45px; line-height: 45px; padding: 0 15px; }
+  .hz-topbar .brand { color: #fff; font-weight: 600; margin-right: 20px; }
+  .hz-sidebar { background: #fff; border-right: 1px solid #ddd; min-height: calc(100vh - 45px); padding: 10px 0; }
+  .hz-sidebar .grp { color: #888; text-transform: uppercase; font-size: 11px; padding: 10px 15px 4px; }
+  .hz-sidebar a { display: block; padding: 5px 25px; color: #333; }
+  .hz-sidebar a.active { background: #e8f1fa; border-left: 3px solid #337ab7; color: #337ab7; font-weight: 600; }
+  .hz-content { padding: 15px 25px; }
+  .mock-banner { background: #fff3cd; border: 1px dashed #c69500; padding: 8px 12px; margin-bottom: 15px; }
+  .mock-banner .btn { margin-left: 6px; }
+
+  /* --- panel styles (these would live in the template, like volume_metrics) --- */
+  .page-header { margin-top: 0; }
+  .toolbar { margin-bottom: 15px; }
+  .toolbar .refresh-info { color: #777; line-height: 30px; }
+  .metric-card { min-height: 110px; }
+  .metric-card .panel-heading { display: flex; align-items: center; padding: 18px 15px; min-height: 110px; }
+  .metric-icon { font-size: 3em; opacity: .3; margin-right: 15px; }
+  .metric-value { font-size: 2.3em; font-weight: 300; line-height: 1; margin-bottom: 4px; }
+  .metric-label { font-size: .95em; opacity: .9; }
+  .metric-sub { font-size: .85em; opacity: .85; margin-top: 3px; }
+  .panel-green  > .panel-heading { background: #5cb85c; border-color: #4cae4c; color: #fff; }
+  .panel-yellow > .panel-heading { background: #f0ad4e; border-color: #eea236; color: #fff; }
+  .panel-red    > .panel-heading { background: #d9534f; border-color: #d43f3a; color: #fff; }
+  .panel-green, .panel-yellow, .panel-red { border: 0; }
+
+  .attention-list { margin: 0; padding-left: 0; list-style: none; }
+  .attention-list li { padding: 3px 0; }
+  .attention-list a { cursor: pointer; }
+
+  .cpu-bar { position: relative; height: 18px; background: #eee; border-radius: 3px; overflow: hidden; min-width: 120px; }
+  .cpu-bar .seg { height: 100%; float: left; }
+  .seg-user { background: #5bc0de; } .seg-kernel { background: #337ab7; } .seg-iowait { background: #f0ad4e; }
+  .cpu-bar .txt { position: absolute; width: 100%; text-align: center; line-height: 18px; font-size: 11px; font-weight: 600; color: #222; }
+  .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px 0 10px; vertical-align: middle; }
+
+  table.hosts td, table.hosts th { vertical-align: middle !important; }
+  table.hosts tbody tr { cursor: pointer; }
+  table.hosts tbody tr.selected { outline: 2px solid #337ab7; outline-offset: -2px; }
+  table.hosts th.sortable { cursor: pointer; white-space: nowrap; }
+  table.hosts th.sortable .fa { color: #aaa; }
+  .spark { width: 110px; height: 28px; }
+  .text-stale { color: #999; }
+  .needs-api { border: 1px dashed #aaa; background: repeating-linear-gradient(45deg,#fafafa,#fafafa 6px,#f0f0f0 6px,#f0f0f0 12px); color: #888; }
+  .chart-box { position: relative; height: 280px; }
+  .help-block-sm { font-size: 12px; color: #777; }
+  .empty-state { padding: 40px 20px; text-align: center; color: #777; }
+  .empty-state .fa { font-size: 3em; opacity: .4; display: block; margin-bottom: 10px; }
+  .mock-note { font-size: 11px; color: #a07800; font-style: italic; }
+</style>
+</head>
+<body>
+
+<div class="hz-topbar"><span class="brand">openstack.</span> <i class="fa fa-cube"></i> admin ▾ <span class="pull-right"><i class="fa fa-user"></i> admin ▾</span></div>
+<div class="container-fluid"><div class="row">
+  <div class="col-sm-2 hz-sidebar hidden-xs">
+    <div class="grp">Project</div><div class="grp">Admin</div>
+    <a>Overview</a><div class="grp" style="padding-left:20px">Compute</div><div class="grp" style="padding-left:20px">Volume</div>
+    <div class="grp" style="padding-left:20px">Telemetry</div>
+    <a class="active">Compute Host Health</a>
+    <a>Volume Metrics</a>
+    <div class="grp">Identity</div>
+  </div>
+
+  <div class="col-sm-10 hz-content">
+
+    <div class="mock-banner">
+      <strong><i class="fa fa-paint-brush"></i> MOCKUP</strong>, sample data, not connected to OpenStack.
+      Preview state:
+      <button class="btn btn-xs btn-default active" data-state="normal">Normal (6 hosts)</button>
+      <button class="btn btn-xs btn-default" data-state="healthy">All healthy</button>
+      <button class="btn btn-xs btn-default" data-state="empty">No data</button>
+      <button class="btn btn-xs btn-default" data-state="error">Datasource error</button>
+    </div>
+
+    <div class="page-header"><h1>Compute Host Health</h1></div>
+
+    <!-- toolbar: time range + refresh -->
+    <div class="row toolbar">
+      <div class="col-sm-6">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Time range" id="range">
+          <button class="btn btn-default" data-range="1h">1h</button>
+          <button class="btn btn-default active" data-range="6h">6h</button>
+          <button class="btn btn-default" data-range="24h">24h</button>
+          <button class="btn btn-default" data-range="7d">7d</button>
+        </div>
+        <span class="help-block-sm" style="margin-left:8px">Range for trends and charts. Status always uses the last 15 min.</span>
+      </div>
+      <div class="col-sm-6 text-right refresh-info">
+        <i class="fa fa-refresh"></i> Auto-refresh every 30s · last updated <span id="updated">just now</span>
+      </div>
+    </div>
+
+    <div id="state-error" class="alert alert-danger" style="display:none">
+      <i class="fa fa-exclamation-circle"></i> <strong>Error loading telemetry data:</strong>
+      could not reach the metric-storage (Aetos) endpoint. Showing no data; retrying in 30s.
+    </div>
+
+    <div id="state-empty" class="panel panel-default" style="display:none">
+      <div class="panel-body empty-state">
+        <i class="fa fa-server"></i>
+        <h4>No compute host metrics available</h4>
+        <p>No host has reported <code>compute.node.cpu.*</code> in the last 10 minutes.</p>
+        <p class="help-block-sm">These metrics come from Nova's CPU monitor. Make sure
+          <code>[DEFAULT] compute_monitors = cpu.virt_driver</code> is set in <code>nova.conf</code> on the compute nodes,
+          and that Ceilometer's notification agent is running.</p>
+      </div>
+    </div>
+
+    <div id="state-data">
+    <!-- summary cards (htmx: refresh every 30s) -->
+    <div class="row" id="cards"></div>
+
+    <!-- attention list -->
+    <div id="attention"></div>
+
+    <!-- host table -->
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title" style="display:inline-block"><i class="fa fa-server"></i> Compute Hosts</h3>
+        <span class="pull-right">
+          <label class="checkbox-inline" style="margin-right:12px"><input type="checkbox" id="only-attn"> Only hosts needing attention</label>
+          <input type="search" class="form-control input-sm" id="filter" placeholder="Filter hosts…" style="display:inline-block;width:180px">
+        </span>
+        <div class="clearfix"></div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-striped table-hover hosts" style="margin-bottom:0">
+          <thead><tr>
+            <th class="sortable" data-sort="name">Host <i class="fa fa-sort"></i></th>
+            <th class="sortable" data-sort="sev">Status <i class="fa fa-sort-desc"></i></th>
+            <th class="sortable" data-sort="cpu" style="min-width:170px">CPU usage <i class="fa fa-sort"></i>
+              <div class="help-block-sm" style="font-weight:normal;margin:0">
+                <span class="legend-dot seg-user"></span>user<span class="legend-dot seg-kernel"></span>kernel<span class="legend-dot seg-iowait"></span>iowait</div></th>
+            <th class="sortable text-right" data-sort="avg">Avg (15m) <i class="fa fa-sort"></i></th>
+            <th class="sortable text-right" data-sort="iowait">I/O wait <i class="fa fa-sort"></i></th>
+            <th class="text-right">Frequency</th>
+            <th>Trend <span class="help-block-sm" id="trend-label">(6h)</span></th>
+            <th class="text-right">Last report</th>
+            <th class="needs-api text-center" title="Requires the Nova API (see open questions)">Instances / vCPUs<br><span class="mock-note">needs Nova API?</span></th>
+          </tr></thead>
+          <tbody id="host-rows"></tbody>
+        </table>
+      </div>
+      <div class="panel-footer help-block-sm">
+        <i class="fa fa-info-circle"></i>
+        <strong>Status rules</strong> (average over the last 15 min):
+        <span class="label label-danger">Critical</span> CPU ≥ 90% or I/O wait ≥ 20% ·
+        <span class="label label-warning">Warning</span> CPU ≥ 75% or I/O wait ≥ 10% ·
+        <span class="label label-default">Stale</span> no report for &gt; 10 min ·
+        <span class="label label-success">Healthy</span> otherwise.
+        Click a row to highlight that host in the charts.
+      </div>
+    </div>
+
+    <!-- charts -->
+    <div class="row">
+      <div class="col-md-7">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-line-chart"></i> CPU usage over time
+            <small class="text-muted">5 busiest hosts · dashed lines = thresholds</small></h3></div>
+          <div class="panel-body"><div class="chart-box"><canvas id="timeline"></canvas></div></div>
+        </div>
+      </div>
+      <div class="col-md-5">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-bar-chart"></i> CPU time breakdown
+            <small class="text-muted">current, per host</small></h3></div>
+          <div class="panel-body"><div class="chart-box"><canvas id="breakdown"></canvas></div></div>
+        </div>
+      </div>
+    </div>
+    </div><!-- /state-data -->
+
+    <p class="help-block-sm"><i class="fa fa-database"></i> Source: Ceilometer <code>compute.node.cpu.*</code> meters
+      (Nova <code>compute.metrics.update</code> notifications) → sg-core → Prometheus → Aetos.</p>
+  </div>
+</div></div>
+
+<script>
+// ---------------- sample data ----------------
+const NOW = Date.now();
+function series(base, amp, noise, trend, n) {
+  const out = []; for (let i = 0; i < n; i++) {
+    const v = base + amp * Math.sin(i / 6) + (Math.random() - .5) * noise + trend * i / n;
+    out.push(Math.max(0, Math.min(100, Math.round(v)))); } return out;
+}
+const DATASETS = {
+  normal: [
+    { name: 'compute-03', user: 71, kernel: 17, iowait: 5,  avg: 92, freq: 2100, last: 40,   s: series(70, 8, 6, 22, 72) },
+    { name: 'compute-05', user: 38, kernel: 9,  iowait: 14, avg: 58, freq: 2900, last: 55,   s: series(50, 6, 8, 8, 72) },
+    { name: 'compute-06', user: 0,  kernel: 0,  iowait: 0,  avg: null, freq: 2600, last: 1080, s: series(35, 4, 5, -30, 50), stale: true },
+    { name: 'compute-01', user: 41, kernel: 8,  iowait: 1,  avg: 49, freq: 3000, last: 30,   s: series(45, 10, 6, 0, 72) },
+    { name: 'compute-02', user: 22, kernel: 6,  iowait: 2,  avg: 31, freq: 3000, last: 25,   s: series(28, 6, 5, 0, 72) },
+    { name: 'compute-04', user: 8,  kernel: 3,  iowait: 0,  avg: 12, freq: 3100, last: 65,   s: series(12, 3, 3, 0, 72) },
+  ],
+};
+DATASETS.healthy = DATASETS.normal.filter(h => !h.stale).map(h => ({ ...h, user: Math.min(h.user, 35), iowait: Math.min(h.iowait, 3), avg: Math.min(h.avg ?? 30, 45), s: h.s.map(v => Math.min(v, 45)) }));
+
+const T = { critCpu: 90, warnCpu: 75, critIo: 20, warnIo: 10, staleSec: 600 };
+function evaluate(h) {
+  h.cpu = h.user + h.kernel + h.iowait;
+  if (h.stale) return { sev: 1, label: 'Stale', cls: 'default', icon: 'clock-o', why: `no data for ${Math.round(h.last / 60)} min` };
+  const r = [];
+  if (h.avg >= T.critCpu) r.push(`CPU ${h.avg}%`);
+  if (h.iowait >= T.critIo) r.push(`I/O wait ${h.iowait}%`);
+  if (r.length) return { sev: 3, label: 'Critical', cls: 'danger', icon: 'exclamation-circle', why: r.join(', ') + ' (15 min avg)' };
+  if (h.avg >= T.warnCpu) r.push(`CPU ${h.avg}%`);
+  if (h.iowait >= T.warnIo) r.push(`I/O wait ${h.iowait}%`);
+  if (r.length) return { sev: 2, label: 'Warning', cls: 'warning', icon: 'exclamation-triangle', why: r.join(', ') };
+  return { sev: 0, label: 'Healthy', cls: 'success', icon: 'check-circle', why: '' };
+}
+function ago(s) { return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; }
+
+let hosts = [], sortKey = 'sev', sortDir = -1, selected = null, charts = {};
+
+function render() {
+  const fresh = hosts.filter(h => !h.stale);
+  const attn = hosts.filter(h => h.st.sev > 0);
+  const crit = hosts.filter(h => h.st.sev === 3).length, warn = hosts.filter(h => h.st.sev === 2).length, stale = hosts.filter(h => h.st.sev === 1).length;
+  const avg = fresh.length ? Math.round(fresh.reduce((a, h) => a + h.avg, 0) / fresh.length) : 0;
+  const maxIo = fresh.reduce((m, h) => h.iowait > m.iowait ? h : m, { iowait: -1 });
+  const card = (cls, icon, val, label, sub) => `<div class="col-lg-3 col-md-6 col-sm-6"><div class="panel ${cls} metric-card"><div class="panel-heading">
+      <i class="fa fa-${icon} metric-icon"></i><div class="text-right" style="flex:1"><div class="metric-value">${val}</div>
+      <div class="metric-label">${label}</div><div class="metric-sub">${sub}</div></div></div></div></div>`;
+  document.getElementById('cards').innerHTML =
+    card('panel-primary', 'server', `${fresh.length}<small style="font-size:.45em"> / ${hosts.length}</small>`, 'Hosts reporting', stale ? `${stale} stale` : 'all reporting') +
+    card(avg >= T.warnCpu ? 'panel-yellow' : 'panel-green', 'tachometer', `${avg}%`, 'Average CPU usage', '15 min avg, all hosts') +
+    card(crit ? 'panel-red' : warn ? 'panel-yellow' : 'panel-green', crit || warn ? 'exclamation-triangle' : 'check-circle', crit + warn, 'Hosts needing attention', `${crit} critical · ${warn} warning`) +
+    card(maxIo.iowait >= T.warnIo ? 'panel-yellow' : 'panel-green', 'hdd-o', `${Math.max(maxIo.iowait, 0)}%`, 'Highest I/O wait', maxIo.name ? `on ${maxIo.name}` : '');
+
+  document.getElementById('attention').innerHTML = attn.length ? `<div class="alert alert-${crit ? 'danger' : 'warning'}">
+      <strong><i class="fa fa-bell"></i> ${attn.length} host${attn.length > 1 ? 's' : ''} need${attn.length > 1 ? '' : 's'} attention</strong>
+      <ul class="attention-list">${attn.sort((a, b) => b.st.sev - a.st.sev).map(h => `<li><span class="label label-${h.st.cls}"><i class="fa fa-${h.st.icon}"></i> ${h.st.label}</span>
+      <a data-host="${h.name}"><strong>${h.name}</strong></a>: ${h.st.why}</li>`).join('')}</ul></div>` : '';
+
+  const q = document.getElementById('filter').value.toLowerCase(), only = document.getElementById('only-attn').checked;
+  const key = { name: h => h.name, sev: h => h.st.sev * 1000 + h.cpu, cpu: h => h.stale ? -1 : h.cpu, avg: h => h.avg ?? -1, iowait: h => h.stale ? -1 : h.iowait }[sortKey];
+  const rows = hosts.filter(h => h.name.includes(q) && (!only || h.st.sev > 0))
+    .sort((a, b) => (key(a) > key(b) ? 1 : key(a) < key(b) ? -1 : 0) * sortDir);
+  document.getElementById('host-rows').innerHTML = rows.length ? rows.map(h => `<tr data-host="${h.name}" class="${h.name === selected ? 'selected' : ''} ${h.st.sev === 3 ? 'danger' : h.st.sev === 2 ? 'warning' : ''}">
+      <td><strong>${h.name}</strong></td>
+      <td><span class="label label-${h.st.cls}" title="${h.st.why}"><i class="fa fa-${h.st.icon}"></i> ${h.st.label}</span></td>
+      <td>${h.stale ? '<span class="text-stale">no recent data</span>' : `<div class="cpu-bar" title="user ${h.user}% · kernel ${h.kernel}% · iowait ${h.iowait}%">
+          <div class="seg seg-user" style="width:${h.user}%"></div><div class="seg seg-kernel" style="width:${h.kernel}%"></div>
+          <div class="seg seg-iowait" style="width:${h.iowait}%"></div><div class="txt">${h.cpu}%</div></div>`}</td>
+      <td class="text-right">${h.avg == null ? '<span class="text-stale">n/a</span>' : h.avg + '%'}</td>
+      <td class="text-right ${h.iowait >= T.warnIo ? 'text-warning' : ''}">${h.stale ? '<span class="text-stale">n/a</span>' : `<strong>${h.iowait}%</strong>`}</td>
+      <td class="text-right">${(h.freq / 1000).toFixed(1)} GHz</td>
+      <td><canvas class="spark" id="sp-${h.name}"></canvas></td>
+      <td class="text-right ${h.stale ? 'text-danger' : 'text-muted'}">${ago(h.last)}</td>
+      <td class="needs-api text-center">${h.stale ? '?' : Math.round(h.cpu / 4) + ' / ' + Math.round(h.cpu / 2)}</td></tr>`).join('')
+    : `<tr><td colspan="9" class="text-center text-muted" style="padding:20px">No hosts match the current filter.</td></tr>`;
+  rows.forEach(h => sparkline(h));
+  drawCharts();
+}
+
+function sparkline(h) {
+  const el = document.getElementById('sp-' + h.name); if (!el) return;
+  new Chart(el, { type: 'line', data: { labels: h.s.map((_, i) => i), datasets: [{ data: h.s, borderWidth: 1.5, pointRadius: 0, tension: .3,
+      borderColor: h.st.sev === 3 ? '#d9534f' : h.st.sev === 2 ? '#f0ad4e' : h.stale ? '#bbb' : '#337ab7', fill: false }] },
+    options: { responsive: false, animation: false, plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: { x: { display: false }, y: { display: false, min: 0, max: 100 } } } });
+}
+
+const COLORS = ['#d9534f', '#f0ad4e', '#337ab7', '#5cb85c', '#9b59b6', '#5bc0de'];
+function drawCharts() {
+  Object.values(charts).forEach(c => c.destroy());
+  const top = hosts.filter(h => !h.stale).sort((a, b) => b.avg - a.avg).slice(0, 5);
+  const n = 72, labels = Array.from({ length: n }, (_, i) => { const d = new Date(NOW - (n - 1 - i) * 5 * 60000); return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0'); });
+  const thr = (v, c, l) => ({ label: l, data: Array(n).fill(v), borderColor: c, borderDash: [6, 4], borderWidth: 1, pointRadius: 0, fill: false });
+  charts.t = new Chart(document.getElementById('timeline'), { type: 'line',
+    data: { labels, datasets: [...top.map((h, i) => ({ label: h.name, data: h.s, borderColor: COLORS[i], backgroundColor: COLORS[i],
+      borderWidth: selected && selected !== h.name ? 1 : 2.5, pointRadius: 0, tension: .25, fill: false,
+      borderDash: [], hidden: false, order: h.name === selected ? 0 : 1 })), thr(T.critCpu, '#d9534f', 'Critical (90%)'), thr(T.warnCpu, '#f0ad4e', 'Warning (75%)')] },
+    options: { maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y}%` } } },
+      scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }, x: { ticks: { maxTicksLimit: 8 } } } } });
+  const fresh = hosts.filter(h => !h.stale).sort((a, b) => b.cpu - a.cpu);
+  const bar = (k, l, c) => ({ label: l, data: fresh.map(h => k === 'idle' ? 100 - h.cpu : h[k]), backgroundColor: c });
+  charts.b = new Chart(document.getElementById('breakdown'), { type: 'bar',
+    data: { labels: fresh.map(h => h.name), datasets: [bar('user', 'User', '#5bc0de'), bar('kernel', 'Kernel', '#337ab7'), bar('iowait', 'I/O wait', '#f0ad4e'), bar('idle', 'Idle', '#e6e6e6')] },
+    options: { indexAxis: 'y', maintainAspectRatio: false, animation: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.x}%` } } },
+      scales: { x: { stacked: true, max: 100, ticks: { callback: v => v + '%' } }, y: { stacked: true } } } });
+}
+
+function setState(s) {
+  document.querySelectorAll('[data-state]').forEach(b => b.classList.toggle('active', b.dataset.state === s));
+  document.getElementById('state-error').style.display = s === 'error' ? '' : 'none';
+  document.getElementById('state-empty').style.display = s === 'empty' ? '' : 'none';
+  document.getElementById('state-data').style.display = (s === 'empty' || s === 'error') ? 'none' : '';
+  if (DATASETS[s]) { hosts = DATASETS[s].map(h => ({ ...h })); hosts.forEach(h => h.st = evaluate(h)); selected = null; render(); }
+}
+
+// ---------------- interactions ----------------
+document.querySelectorAll('[data-state]').forEach(b => b.onclick = () => setState(b.dataset.state));
+document.querySelectorAll('#range button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('active', x === b));
+  document.getElementById('trend-label').textContent = `(${b.dataset.range})`; });
+document.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
+  const k = th.dataset.sort; sortDir = sortKey === k ? -sortDir : (k === 'name' ? 1 : -1); sortKey = k;
+  document.querySelectorAll('th.sortable .fa').forEach(i => i.className = 'fa fa-sort');
+  th.querySelector('.fa').className = 'fa fa-sort-' + (sortDir > 0 ? 'asc' : 'desc'); render(); });
+document.getElementById('filter').oninput = render;
+document.getElementById('only-attn').onchange = render;
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-host]'); if (!t) return;
+  selected = selected === t.dataset.host ? null : t.dataset.host; render();
+  document.querySelector(`tr[data-host="${t.dataset.host}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
+let secs = 0; setInterval(() => { secs = (secs + 1) % 30; document.getElementById('updated').textContent = secs ? `${secs}s ago` : 'just now'; }, 1000);
+setState('normal');
+</script>
+</body>
+</html>

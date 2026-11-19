@@ -29,14 +29,14 @@ Every page ends with a **How this page is calculated** section that lists the qu
 
 For cloud operators (admin role); every page covers all projects.
 
-| Page | Question it answers | Status |
-|---|---|---|
-| [`compute-host-health-v2.html`](compute-host-health-v2.html) | Is any compute node overloaded? | Implemented, under review |
-| [`instance-health.html`](instance-health.html) | Which VMs are in trouble right now? | Implemented, not yet submitted |
-| [`admin-storage-health.html`](admin-storage-health.html) | Is block storage healthy, and when does it run out? Rework of the existing Volume Metrics panel; a checkbox marks NEW and CHANGED sections. | Proposed |
-| [`admin-top-consumers.html`](admin-top-consumers.html) | Who is using the cloud's resources? | Proposed |
-| [`admin-network-health.html`](admin-network-health.html) | Is the network healthy, and is a problem the platform's or one project's? | Proposed |
-| [`admin-provisioning.html`](admin-provisioning.html) | Are new instances getting slower to boot, or failing? | Proposed |
+| Page | Question it answers |
+|---|---|
+| [`compute-host-health-v2.html`](compute-host-health-v2.html) | Is any compute node overloaded? |
+| [`instance-health.html`](instance-health.html) | Which VMs are in trouble right now? |
+| [`admin-storage-health.html`](admin-storage-health.html) | Is block storage healthy, and when does it run out? Rework of the existing Volume Metrics panel; a checkbox marks NEW and CHANGED sections. |
+| [`admin-top-consumers.html`](admin-top-consumers.html) | Who is using the cloud's resources? |
+| [`admin-network-health.html`](admin-network-health.html) | Is the network healthy, and is a problem the platform's or one project's? |
+| [`admin-provisioning.html`](admin-provisioning.html) | Are new instances getting slower to boot, or failing? |
 
 ## Project → Telemetry
 
@@ -49,8 +49,6 @@ For members of a project; every page shows only the current project (Aetos multi
 | [`project-network.html`](project-network.html) | Is my network working, and if not, is it me or the cloud? |
 | [`project-usage.html`](project-usage.html) | What did my project hold and actually use this month? |
 | [`project-instance-metrics.html`](project-instance-metrics.html) | What is this one instance doing? (opened from the other pages) |
-
-All project pages are proposed.
 
 ## Other files
 
